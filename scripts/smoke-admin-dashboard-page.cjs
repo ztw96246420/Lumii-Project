@@ -185,6 +185,10 @@ async function main() {
     await page.locator('#nav button[data-route="places"]').click();
     await page.getByText('地点活动奖励', { exact: true }).waitFor({ timeout: 30_000 });
     await page.getByText('结算上期活动', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.locator('#nav button[data-route="avatarJobs"]').click();
+    await page.getByText('供应商成本与赔付队列', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.locator('.card.metric').filter({ hasText: '待赔付对账' }).waitFor({ timeout: 30_000 });
+    await page.locator('.card.metric').filter({ hasText: 'SLA 超时' }).waitFor({ timeout: 30_000 });
 
     console.log('admin dashboard page smoke passed');
   } finally {

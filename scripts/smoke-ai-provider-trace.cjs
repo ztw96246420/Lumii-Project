@@ -291,13 +291,18 @@ async function main() {
     assert.equal(row.providerTrace.some((trace) => trace.stage === 'status'), true);
     assert.equal(row.providerCost.cost, 0.0123);
     assert.equal(row.providerCost.creditsCost, 1.25);
+    assert.equal(row.failureAttribution.key, 'none');
+    assert.equal(row.providerReconciliation.status, 'balanced');
+    assert.equal(row.sla.status, 'met');
+    assert.ok(row.sla.totalMs >= 0);
     const traceJson = JSON.stringify(row.providerTrace);
     assert.equal(traceJson.includes(tinyPngBase64), false, 'provider trace leaked base64 image data');
     assert.equal(traceJson.includes('Smoke prompt'), false, 'provider trace should not include raw prompt text');
 
     const usage = await request('/admin/ai/usage?days=7', { token: adminToken });
     assert.ok(usage.data.summary.providerTraceEntries >= 2);
-    assert.ok(usage.data.providers.some((provider) => provider.provider === 'gpt-image-2' && provider.traceCount >= 2));
+    assert.ok(usage.data.providers.some((provider) => provider.provider === 'gpt-image-2' && provider.traceCount >= 2 && provider.p95TotalMs >= 0));
+    assert.equal(usage.data.reconciliation.summary.actionRequired, 0);
     console.log('AI provider trace smoke passed');
   } finally {
     await stopBackend();

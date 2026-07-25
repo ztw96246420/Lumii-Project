@@ -25,6 +25,7 @@ const suites = [
   { key: 'ai-stuck-reaper', title: 'AI stuck-job recovery', script: 'smoke-ai-stuck-reaper.cjs', timeoutMs: 180_000 },
   { key: 'ai-prompt-versions', title: 'AI prompt versions', script: 'smoke-ai-prompt-versions.cjs', timeoutMs: 180_000 },
   { key: 'ai-provider-trace', title: 'AI provider trace', script: 'smoke-ai-provider-trace.cjs', timeoutMs: 180_000 },
+  { key: 'ai-provider-reconciliation', title: 'AI provider reconciliation and compensation', script: 'smoke-ai-provider-reconciliation.cjs', timeoutMs: 180_000 },
   { key: 'pet-chat-quality-review', title: 'Pet chat quality review', script: 'smoke-pet-chat-quality-review.cjs', timeoutMs: 180_000 },
   { key: 'pet-chat-medical-risk-rules', title: 'Pet chat medical risk rules', script: 'smoke-pet-chat-medical-risk-rules.cjs', timeoutMs: 180_000 },
 

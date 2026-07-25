@@ -1112,6 +1112,10 @@ async function onContentClick(event) {
       await applyAvatarJobToPet(button);
       return;
     }
+    if (action === 'avatar-reconcile') {
+      await reconcileAvatarJob(button);
+      return;
+    }
     if (action === 'avatar-refresh') await post(`/admin/ai/avatar-jobs/${id}/refresh`, { reason });
     if (action === 'avatar-retry') await post(`/admin/ai/avatar-jobs/${id}/retry`, { reason });
     if (action === 'avatar-fail') await post(`/admin/ai/avatar-jobs/${id}/mark-failed`, { reason });
@@ -6523,15 +6527,21 @@ function avatarTaskCell(job) {
 function avatarJobAction(job) {
   const canApply = job.status === 'ready' && job.resultUrl;
   const canRefund = job.quotaRefundable === true;
+  const canOperate = adminCan('ai.avatar.compensate');
+  const canSample = adminCan('ai.avatar.sample');
+  const canModeratePetMedia = adminCan('pet.media_moderate');
+  const canReconcile = job.status === 'failed' && job.providerReconciliation?.status !== 'resolved';
   return `
     <div class="actions">
-      <button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
-      <button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>
-      ${canRefund ? `<button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>` : '<span class="cell-sub">额度不可返还</span>'}
-      ${canApply ? `<button class="small-button ghost" data-action="avatar-apply" data-id="${escapeHtml(job.id)}" data-pet-id="${escapeHtml(job.acceptedPetId || job.petId || '')}" data-pet-name="${escapeHtml(job.acceptedPetName || job.petName || '')}">应用为AI形象</button>` : ''}
-      <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="prompt_quality" data-sample-type-label="提示词优化样本" data-default-note="${escapeHtml(job.feedback?.reasonLabel || job.lastStatusError || '记录为提示词优化样本')}" data-default-tags="提示词,${escapeHtml(job.provider || 'AI')}">提示词样本</button>
-      <button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="provider_anomaly" data-sample-type-label="供应商异常样本" data-default-note="${escapeHtml(job.errorCode || job.providerStatus || job.lastStatusError || '记录为供应商异常样本')}" data-default-tags="供应商,${escapeHtml(job.provider || 'AI')}">供应商样本</button>
-      <button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>
+      ${canOperate ? `<button class="small-button" data-action="avatar-refresh" data-id="${escapeHtml(job.id)}">刷新</button>` : ''}
+      ${canOperate ? `<button class="small-button" data-action="avatar-retry" data-id="${escapeHtml(job.id)}">重试</button>` : ''}
+      ${canOperate && canRefund ? `<button class="small-button" data-action="avatar-refund" data-id="${escapeHtml(job.id)}">返还</button>` : ''}
+      ${canOperate && canReconcile ? `<button class="small-button" data-action="avatar-reconcile" data-id="${escapeHtml(job.id)}" data-provider="${escapeHtml(job.provider || '')}">赔付对账</button>` : ''}
+      ${canModeratePetMedia && canApply ? `<button class="small-button ghost" data-action="avatar-apply" data-id="${escapeHtml(job.id)}" data-pet-id="${escapeHtml(job.acceptedPetId || job.petId || '')}" data-pet-name="${escapeHtml(job.acceptedPetName || job.petName || '')}">应用为AI形象</button>` : ''}
+      ${canSample ? `<button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="prompt_quality" data-sample-type-label="提示词优化样本" data-default-note="${escapeHtml(job.feedback?.reasonLabel || job.lastStatusError || '记录为提示词优化样本')}" data-default-tags="提示词,${escapeHtml(job.provider || 'AI')}">提示词样本</button>` : ''}
+      ${canSample ? `<button class="small-button" data-action="avatar-sample-add" data-id="${escapeHtml(job.id)}" data-sample-type="provider_anomaly" data-sample-type-label="供应商异常样本" data-default-note="${escapeHtml(job.errorCode || job.providerStatus || job.lastStatusError || '记录为供应商异常样本')}" data-default-tags="供应商,${escapeHtml(job.provider || 'AI')}">供应商样本</button>` : ''}
+      ${canOperate ? `<button class="small-button danger" data-action="avatar-fail" data-id="${escapeHtml(job.id)}">失败</button>` : ''}
+      ${!canOperate && !canSample && !(canModeratePetMedia && canApply) ? '<span class="cell-sub">只读权限</span>' : ''}
     </div>
   `;
 }
@@ -6581,6 +6591,7 @@ function avatarAnimationTraceCell(job) {
 }
 
 function avatarAnimationAction(job) {
+  if (!adminCan('ai.avatar.compensate')) return '<span class="cell-sub">只读权限</span>';
   return `
     <div class="actions">
       <button class="small-button" data-action="avatar-animation-refresh" data-id="${escapeHtml(job.id)}">刷新</button>
@@ -6592,7 +6603,9 @@ function avatarAnimationAction(job) {
 
 function avatarQuotaCell(job) {
   if (!job.quotaConsumed) {
-    return '<div class="cell-sub">未扣额度</div>';
+    return job.quotaCompensated
+      ? `${tonePill('免费补偿', 'ok')}<div class="cell-sub">不占用户当日生成额度</div>`
+      : '<div class="cell-sub">未扣额度</div>';
   }
   if (job.quotaRefunded) {
     const source = job.quotaRefundSource === 'auto' ? '自动返还' : '人工返还';
@@ -6627,6 +6640,70 @@ function avatarTraceCell(job) {
     <div class="cell-sub">${escapeHtml(trace.providerStatus || job.providerTraceLatestStatus || '-')} · ${durationMsText(trace.durationMs)}</div>
     <div class="cell-sub">${numberText(job.providerTraceCount)} 次调用${hasCost ? ` · ${moneyText(cost.cost || 0)} / ${numberText(cost.creditsCost || 0, 2)} credits` : ''}</div>
   `;
+}
+
+function avatarSlaCell(job) {
+  const sla = job.sla || {};
+  const tone = sla.status === 'breached' ? 'bad' : sla.status === 'met' ? 'ok' : 'warn';
+  return `
+    ${tonePill(sla.statusLabel || '未跟踪', tone)}
+    <div class="cell-sub">总耗时 ${durationMsText(sla.totalMs || 0)} · 供应商 ${durationMsText(sla.providerMs || 0)}</div>
+    <div class="cell-sub">阶段 ${sla.completeness === 'complete' ? '完整' : `缺 ${(sla.missingStages || []).join('/') || '-'}`}</div>
+  `;
+}
+
+function avatarReconciliationCell(row) {
+  const reconciliation = row.reconciliation || row.providerReconciliation || {};
+  const attribution = row.attribution || row.failureAttribution || {};
+  const tone = reconciliation.status === 'action_required' ? 'bad' : reconciliation.status === 'resolved' || reconciliation.status === 'balanced' ? 'ok' : 'warn';
+  return `
+    ${tonePill(reconciliation.statusLabel || reconciliation.status || '-', tone)}
+    <div class="cell-sub">${escapeHtml(attribution.label || '无失败')} · ${moneyText(reconciliation.cost?.cost || 0)}</div>
+    ${reconciliation.providerResolution ? `<div class="cell-sub">${escapeHtml(reconciliation.providerResolution)} · ${escapeHtml(reconciliation.providerReference || '-')}</div>` : ''}
+    ${reconciliation.retryJobId ? `<div class="cell-sub">补偿任务：${escapeHtml(reconciliation.retryJobId)} · ${escapeHtml(reconciliation.retryProvider || '-')}</div>` : ''}
+  `;
+}
+
+async function reconcileAvatarJob(button) {
+  const jobId = button.dataset.id || '';
+  const sourceProvider = button.dataset.provider || '';
+  const providerResolution = window.prompt('供应商结算结果：credited（已入账）/ rejected（拒赔）/ waived（平台承担）', 'credited');
+  if (providerResolution === null) return;
+  const normalizedResolution = providerResolution.trim();
+  if (!['credited', 'rejected', 'waived'].includes(normalizedResolution)) {
+    showToast('供应商结算结果无效');
+    return;
+  }
+  const providerReference = normalizedResolution === 'waived'
+    ? ''
+    : window.prompt('请输入供应商工单号或结算凭证', '');
+  if (providerReference === null) return;
+  const userAction = window.prompt('用户赔付：none / refund_quota / retry_free / refund_and_retry_free', 'refund_and_retry_free');
+  if (userAction === null) return;
+  const normalizedAction = userAction.trim();
+  if (!['none', 'refund_and_retry_free', 'refund_quota', 'retry_free'].includes(normalizedAction)) {
+    showToast('用户赔付动作无效');
+    return;
+  }
+  let retryProvider = sourceProvider;
+  if (normalizedAction === 'retry_free' || normalizedAction === 'refund_and_retry_free') {
+    const selectedProvider = window.prompt('补偿重试供应商：gpt-image-2 / ttapi-flux-edits / ttapi-midjourney', sourceProvider || 'gpt-image-2');
+    if (selectedProvider === null) return;
+    retryProvider = selectedProvider.trim();
+  }
+  const reason = window.prompt('请输入对账与赔付结案说明', '已核对供应商账单并完成用户赔付');
+  if (reason === null) return;
+  if (!window.confirm(`确认结案任务 ${jobId}？供应商结果：${normalizedResolution}；用户赔付：${normalizedAction}${retryProvider ? `；重试供应商：${retryProvider}` : ''}`)) return;
+  await post(`/admin/ai/avatar-jobs/${encodeURIComponent(jobId)}/reconciliation`, {
+    providerReference: providerReference.trim(),
+    providerResolution: normalizedResolution,
+    reason: reason.trim(),
+    retryProvider,
+    userAction: normalizedAction,
+  });
+  state.cache = { ...state.cache, aiUsage: null, audit: null, avatarJobs: null };
+  showToast('供应商成本与用户赔付已结案');
+  await render(true);
 }
 
 function avatarFeedbackAction(row) {
@@ -6853,6 +6930,9 @@ async function renderAvatarJobs(force) {
   const usageSummary = aiUsage.summary || {};
   const refundPolicy = aiUsage.quotaRefundPolicy || {};
   const providerRows = aiUsage.providers || [];
+  const reconciliation = aiUsage.reconciliation || {};
+  const reconciliationRows = reconciliation.cases || [];
+  const reconciliationSummary = reconciliation.summary || {};
   const topErrors = aiUsage.topErrors || [];
   const processing = jobRows.filter((job) => job.status === 'processing');
   const failed = jobRows.filter((job) => job.status === 'failed');
@@ -6872,6 +6952,8 @@ async function renderAvatarJobs(force) {
       ${metric('动效卡住', numberText(animationStuck.length), '处理中超过 10 分钟未更新', '这里和系统健康页的动效队列报警一致，方便直接在本页处置。')}
       ${metric('调用轨迹', numberText(usageSummary.providerTraceEntries), `${numberText(usageSummary.providerTraceJobs)} 个任务有记录`, '新任务会记录供应商 submit/status/action 调用摘要、耗时、成本快照和错误。')}
       ${metric('额度返还', numberText(usageSummary.avatarQuotaRefunded || 0), `${numberText(usageSummary.avatarQuotaAutoRefunded || 0)} 自动`, '供应商侧失败可按配置自动返还用户当日生成额度；人工返还会防重复并写审计。')}
+      ${metric('待赔付对账', numberText(reconciliationSummary.actionRequired || 0), `${moneyText(reconciliationSummary.unreconciledCost || 0)} 待核销`, '供应商责任失败、用户额度返还和供应商账单凭证统一进入结案队列。')}
+      ${metric('SLA 超时', numberText(reconciliationSummary.slaBreached || 0), `${numberText(reconciliationSummary.freeCompensationRetries || 0)} 次免费补偿重试`, '按供应商逐任务记录提交、排队、处理、交付和总耗时，并统计 p95。')}
       ${metric('待处理反馈', numberText(feedbackSummary.received), `${numberText(feedbackSummary.reviewed)} 条已处理`, '用户在 AI 灵伴结果页提交的不满意反馈。')}
       ${metric('样本池', numberText(sampleSummary.open || 0), `${numberText(sampleSummary.all || 0)} 条总样本`, '运营把反馈、异常调用和素材问题沉淀成样本，用于提示词优化和供应商复盘。')}
       ${metric('上传素材', numberText(mediaSummary.totalMedia), `${numberText(mediaSummary.linked)} 张已发起生成`, '移动端上传到 /media/uploads 的宠物原图素材。')}
@@ -6901,11 +6983,37 @@ async function renderAvatarJobs(force) {
         ['用户', (job) => `<div>${escapeHtml(job.ownerName || '-')}</div><div class="cell-sub">${shortPhone(job.ownerPhone)}</div>`],
         ['状态', (job) => `${statusPill(job.status)}<div class="cell-sub">${escapeHtml(job.provider || '-')} · ${job.progress || 0}%</div><div class="cell-sub">${escapeHtml(job.providerStatus || '-')}</div>`],
         ['调用轨迹', avatarTraceCell],
+        ['SLA', avatarSlaCell],
+        ['成本对账', avatarReconciliationCell],
         ['额度', avatarQuotaCell],
         ['错误', (job) => `<div>${escapeHtml(job.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(job.lastStatusError || job.errorMessage || '')}</div>`],
         ['时间', (job) => `<div>创建：${formatTime(job.createdAt)}</div><div class="cell-sub">更新：${formatTime(job.updatedAt)}</div>`],
         ['操作', avatarJobAction],
       ], '暂无 AI 形象任务')}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>供应商成本与赔付队列</h2>
+          <div class="section-sub">失败归因、账单凭证、额度返还、免费重试和跨供应商补偿</div>
+        </div>
+        ${help('待赔付对账表示供应商责任失败且存在成本，或用户额度仍需返还。结案必须记录供应商工单/拒赔结果或明确由平台承担；免费补偿重试不占用户当日额度。')}
+      </div>
+      <div class="switch-panel">
+        <div class="switch-row"><span>待对账成本</span><strong>${moneyText(reconciliationSummary.unreconciledCost || 0)}</strong></div>
+        <div class="switch-row"><span>供应商待核销</span><strong>${numberText(reconciliationSummary.providerCreditDue || 0)} 个</strong></div>
+        <div class="switch-row"><span>用户额度待返还</span><strong>${numberText(reconciliationSummary.quotaRefundDue || 0)} 个</strong></div>
+        <div class="switch-row"><span>已结案 / 跨供应商补偿</span><strong>${numberText(reconciliationSummary.resolved || 0)} / ${numberText(reconciliationSummary.crossProviderRetries || 0)}</strong></div>
+      </div>
+      ${tableHtml(reconciliationRows, [
+        ['任务', (row) => `<div class="cell-title">${escapeHtml(row.petName || row.jobId)}</div><div class="cell-sub">${escapeHtml(row.jobId)}</div><div class="cell-sub">${shortPhone(row.ownerPhone)} · ${escapeHtml(row.provider || '-')}</div>`],
+        ['失败归因', (row) => `<div>${tonePill(row.attribution?.label || '-', row.attribution?.liableParty === 'provider' ? 'bad' : 'warn')}</div><div class="cell-sub">${escapeHtml(row.errorCode || '-')}</div><div class="cell-sub clamp">${escapeHtml(row.errorMessage || '')}</div>`],
+        ['SLA', (row) => avatarSlaCell(row)],
+        ['成本 / 赔付', avatarReconciliationCell],
+        ['更新时间', (row) => formatTime(row.updatedAt)],
+        ['操作', (row) => adminCan('ai.avatar.compensate') && row.status === 'failed' && row.reconciliation?.status !== 'resolved' ? `<button class="small-button" data-action="avatar-reconcile" data-id="${escapeHtml(row.jobId)}" data-provider="${escapeHtml(row.provider || '')}">赔付对账</button>` : '<span class="cell-sub">无需操作</span>'],
+      ], '暂无失败或待对账任务')}
     </div>
 
     <div class="card">
@@ -7103,7 +7211,7 @@ async function renderAvatarJobs(force) {
         ['任务健康', (row) => `<div>${numberText(row.jobCount)} 任务</div><div class="cell-sub">${numberText(row.ready)} ready · ${numberText(row.processing)} 处理中 · ${numberText(row.stuck)} 卡住</div>`],
         ['调用轨迹', (row) => `<div>${numberText(row.traceCount)} 条轨迹</div><div class="cell-sub">${numberText(row.tracedJobs)} 个任务 · 最近 ${formatTime(row.latestTraceAt)}</div>`],
         ['成本 / 额度', (row) => `<div>${moneyText(row.cost || 0)}</div><div class="cell-sub">${numberText(row.creditsCost || 0, 2)} credits · ${numberText(row.quota || 0, 2)} quota</div>`],
-        ['质量', (row) => `<div>${percentText(row.successRate)} 成功率</div><div class="cell-sub">平均 ${secondsText(row.averageSeconds)} · ${escapeHtml(row.topErrorCode || '无 Top 错误')}</div>`],
+        ['质量 / SLA', (row) => `<div>${percentText(row.successRate)} 成功率</div><div class="cell-sub">平均 ${secondsText(row.averageSeconds)} · p95 ${durationMsText(row.p95TotalMs || 0)}</div><div class="cell-sub">超时 ${numberText(row.slaBreached || 0)} · 待对账 ${numberText(row.actionRequired || 0)}</div>`],
         ['最近任务', (row) => formatTime(row.latestJobAt)],
       ], '暂无供应商用量')}
     </div>
@@ -7157,9 +7265,9 @@ async function renderAvatarJobs(force) {
           ${help('成本和供应商监控已可读；后续高风险动作仍需要更细权限、原因、审计和站外审批通知。')}
         </div>
         <div class="gap-list">
-          <div><strong>完整 SLA</strong><span>当前已记录 submit/status/action 调用耗时；queued、running、completed 等细节点仍依赖上游返回。</span></div>
+          <div><strong>SLA 与赔付值守</strong><span>逐任务阶段耗时、供应商 p95、责任归因、用户额度和成本对账已接入；生产期按待对账队列核销供应商工单与赔付凭证。</span></div>
           <div><strong>样本集</strong><span>把已处理反馈沉淀成身份不一致、风格不满意、素材质量差等训练/评估样本。</span></div>
-          <div><strong>供应商切换</strong><span>生产阶段应通过配置中心和灰度策略切换，不直接在任务页一键切 provider。</span></div>
+          <div><strong>供应商切换</strong><span>常规流量仍通过配置中心切换；仅赔付重试允许为单个失败任务选择已配置供应商，并保留原供应商、补偿供应商与审计链。</span></div>
         </div>
       </div>
     </div>

@@ -4325,6 +4325,15 @@ function adminExportDataset(type) {
           const cost = row.providerCost || {};
           return `cost=${Number(cost.cost || 0)} credits=${Number(cost.creditsCost || 0)} quota=${Number(cost.quota || 0)}`;
         }),
+        exportColumn('failureAttribution', '失败归因', (row) => row.failureAttribution?.label || ''),
+        exportColumn('sla', 'SLA', (row) => {
+          const sla = row.sla || {};
+          return `${sla.statusLabel || sla.status || '-'} totalMs=${Number(sla.totalMs || 0)} providerMs=${Number(sla.providerMs || 0)} completeness=${sla.completeness || '-'}`;
+        }),
+        exportColumn('providerReconciliation', '成本与赔付对账', (row) => {
+          const reconciliation = row.providerReconciliation || {};
+          return `${reconciliation.statusLabel || reconciliation.status || '-'} resolution=${reconciliation.providerResolution || '-'} reference=${reconciliation.providerReference || '-'} retryProvider=${reconciliation.retryProvider || '-'}`;
+        }),
         exportColumn('progress', '进度'),
         exportColumn('ownerPhone', '手机号'),
         exportColumn('ownerName', '主人昵称'),
@@ -17003,7 +17012,7 @@ function markAvatarRefreshFailure(job, error) {
   job.lastStatusCheckedAt = Date.now();
   job.statusErrorCount = Number(job.statusErrorCount || 0) + 1;
   const ageMs = Date.now() - Number(job.createdAt || Date.now());
-  const timeoutMs = effectivePetAvatarProvider() === 'gpt-image-2' ? gptImage2StuckTaskTimeoutMs({}) : 8 * 60 * 1000;
+  const timeoutMs = (job?.provider || effectivePetAvatarProvider()) === 'gpt-image-2' ? gptImage2StuckTaskTimeoutMs({}) : 8 * 60 * 1000;
   if (ageMs >= timeoutMs) {
     job.errorCode = 'AVATAR_PROVIDER_STATUS_TIMEOUT';
     job.errorMessage = 'AI 灵伴生成超时，上游图像任务长时间未返回结果，请重新生成。';
@@ -17055,8 +17064,8 @@ function avatarStartFailureMessage(error) {
 
 async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, media) {
   if (state.avatarJobs?.[job.id] !== job || !socialPetFor(user, job)) return;
+  const provider = job.provider || effectivePetAvatarProvider();
   try {
-    const provider = effectivePetAvatarProvider();
     if (provider === 'gpt-image-2') {
       await startGptImage2AvatarJob(user, job, media);
     } else if (provider === 'ttapi-flux-edits') {
@@ -17073,7 +17082,7 @@ async function startAvatarGenerationJobInBackground(reqSnapshot, user, job, medi
     job.errorMessage = avatarStartFailureMessage(error);
     job.lastStatusError = job.errorMessage;
     job.progress = Math.max(0, Number(job.progress || 0));
-    job.provider = effectivePetAvatarProvider();
+    job.provider = provider;
     job.providerStatus = 'submit_failed';
     job.status = 'failed';
     job.submitErrorCount = Number(job.submitErrorCount || 0) + 1;
@@ -17102,8 +17111,9 @@ function queueAvatarGenerationStart(req, user, job, media) {
   }, 0);
 }
 
-async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId) {
-  if (!canUsePetAvatarGeneration(user)) {
+async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId, options = {}) {
+  const compensationMode = options.compensationMode === true;
+  if (!compensationMode && !canUsePetAvatarGeneration(user)) {
     return { error: '今日灵伴形象生成次数已用完，请明天再试', retryable: true, statusCode: 429 };
   }
   const mediaId = String(mediaIdInput || '');
@@ -17143,7 +17153,16 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
       statusCode: lockedPetId ? 409 : 400,
     };
   }
-  const provider = effectivePetAvatarProvider();
+  const requestedProvider = String(options.provider || '').trim();
+  const provider = requestedProvider || effectivePetAvatarProvider();
+  if (requestedProvider && !['gpt-image-2', 'ttapi-flux-edits', 'ttapi-midjourney'].includes(requestedProvider)) {
+    return {
+      code: 'AVATAR_PROVIDER_INVALID',
+      error: '补偿重试供应商无效',
+      retryable: false,
+      statusCode: 400,
+    };
+  }
   if (!petAvatarProviderOperational(provider)) {
     return {
       code: 'AVATAR_PROVIDER_UNAVAILABLE',
@@ -17161,13 +17180,24 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
   job.petId = pet?.id || '';
   job.petName = pet?.name || '';
   if (originalJobId) job.originalJobId = originalJobId;
+  if (compensationMode) {
+    job.compensationCreatedBy = String(options.compensationCreatedBy || 'admin').slice(0, 80);
+    job.compensationMode = true;
+    job.compensationSourceJobId = originalJobId || '';
+  }
   state.avatarJobs[id] = job;
   touchAvatarJob(job);
 
   if (provider === 'mock') {
-    const usage = consumePetAvatarQuota(user);
-    job.quotaConsumed = true;
-    job.quotaDay = usage.day;
+    if (!compensationMode) {
+      const usage = consumePetAvatarQuota(user);
+      job.quotaConsumed = true;
+      job.quotaDay = usage.day;
+    } else {
+      job.quotaCompensated = true;
+      job.quotaConsumed = false;
+      job.quotaDay = todayUsageKey();
+    }
     saveState();
     return { job };
   }
@@ -17177,9 +17207,15 @@ async function createAvatarGenerationJob(req, user, mediaIdInput, originalJobId)
     job.provider = provider;
     job.providerStatus = 'queued';
     job.status = 'processing';
-    const usage = consumePetAvatarQuota(user);
-    job.quotaConsumed = true;
-    job.quotaDay = usage.day;
+    if (!compensationMode) {
+      const usage = consumePetAvatarQuota(user);
+      job.quotaConsumed = true;
+      job.quotaDay = usage.day;
+    } else {
+      job.quotaCompensated = true;
+      job.quotaConsumed = false;
+      job.quotaDay = todayUsageKey();
+    }
     touchAvatarJob(job);
     saveState();
     queueAvatarGenerationStart(req, user, job, media);
@@ -27211,6 +27247,7 @@ function adminOperationalAlerts(options = {}) {
   const avatarJobs = Object.values(state.avatarJobs || {});
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+  const avatarReconciliation = adminAiProviderReconciliation(avatarJobs);
   const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {});
   const processingAvatarAnimationJobs = avatarAnimationJobs.filter((job) => job.status === 'processing');
   const stuckAvatarAnimationJobs = processingAvatarAnimationJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 10 * 60 * 1000);
@@ -27326,6 +27363,17 @@ function adminOperationalAlerts(options = {}) {
     severity: 'high',
     title: 'AI 灵伴生成队列疑似卡住',
     updatedAt: latestJobUpdatedAt(stuckAvatarJobs),
+  });
+  add(Number(avatarReconciliation.summary.actionRequired || 0) > 0, {
+    actionLabel: '看 AI 灵伴',
+    actionRoute: 'avatarJobs',
+    area: 'AI 供应商',
+    detail: `${avatarReconciliation.summary.actionRequired} 个失败任务等待成本核销或用户赔付，待核销供应商成本 ${Number(avatarReconciliation.summary.unreconciledCost || 0).toFixed(4)}。`,
+    evidence: `providerCreditDue=${avatarReconciliation.summary.providerCreditDue || 0} quotaRefundDue=${avatarReconciliation.summary.quotaRefundDue || 0}`,
+    key: 'ai_provider_reconciliation',
+    severity: 'high',
+    title: 'AI 供应商成本与赔付待结案',
+    updatedAt: latestJobUpdatedAt(avatarReconciliation.cases.filter((item) => item.reconciliation?.status === 'action_required')),
   });
   add(stuckAvatarAnimationJobs.length > 0, {
     actionLabel: '看 AI 灵伴',
@@ -28167,6 +28215,7 @@ async function adminSystemHealth() {
   const avatarJobs = Object.values(state.avatarJobs || {});
   const processingAvatarJobs = avatarJobs.filter((job) => job.status === 'processing');
   const stuckAvatarJobs = processingAvatarJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 5 * 60 * 1000);
+  const avatarReconciliation = adminAiProviderReconciliation(avatarJobs);
   const avatarAnimationJobs = Object.values(state.avatarAnimationJobs || {});
   const processingAvatarAnimationJobs = avatarAnimationJobs.filter((job) => job.status === 'processing');
   const stuckAvatarAnimationJobs = processingAvatarAnimationJobs.filter((job) => now - analyticsTimeMs(job.updatedAt || job.createdAt) > 10 * 60 * 1000);
@@ -28384,6 +28433,15 @@ async function adminSystemHealth() {
     adminCheckStatus(aiRuntime.animationReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'pet_avatar_animation_provider', '灵伴动效生成', aiRuntime.animationReady ? aiRuntime.animationEnabled ? `当前 provider：${aiRuntime.animationProvider}` : '当前按配置关闭动效生成' : `真实动效 provider 未就绪：${aiRuntime.animationProvider}`, `apimart key=${APIMART_API_KEY ? 'set' : 'missing'} ${effectiveSeedanceAvatarAnimationConfig().duration}s/${effectiveSeedanceAvatarAnimationConfig().aspectRatio}/${effectiveSeedanceAvatarAnimationConfig().resolution}`),
     adminCheckStatus(appMediaPublicBaseUrl() ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', appMediaPublicBaseUrl() ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
     adminCheckStatus(stuckAvatarJobs.length ? 'warn' : 'ok', 'avatar_queue', 'AI 任务队列', stuckAvatarJobs.length ? `${stuckAvatarJobs.length} 个生成任务可能卡住` : '暂无卡住的生成任务', `${processingAvatarJobs.length} processing / ${avatarJobs.length} total`),
+    adminCheckStatus(
+      Number(avatarReconciliation.summary.actionRequired || 0) > 0 ? 'warn' : 'ok',
+      'ai_provider_reconciliation',
+      'AI 供应商成本与赔付',
+      Number(avatarReconciliation.summary.actionRequired || 0) > 0
+        ? `${avatarReconciliation.summary.actionRequired} 个任务待结案，待核销成本 ${Number(avatarReconciliation.summary.unreconciledCost || 0).toFixed(4)}`
+        : `无待结案任务，已结案 ${avatarReconciliation.summary.resolved || 0} 个`,
+      `providerCreditDue=${avatarReconciliation.summary.providerCreditDue || 0} quotaRefundDue=${avatarReconciliation.summary.quotaRefundDue || 0} freeRetries=${avatarReconciliation.summary.freeCompensationRetries || 0}`,
+    ),
     adminCheckStatus(stuckAvatarAnimationJobs.length ? 'warn' : 'ok', 'avatar_animation_queue', '动效任务队列', stuckAvatarAnimationJobs.length ? `${stuckAvatarAnimationJobs.length} 个动效任务可能卡住` : '暂无卡住的动效任务', `${processingAvatarAnimationJobs.length} processing / ${avatarAnimationJobs.length} total`),
     adminCheckStatus(Number(tickets.overdue || 0) ? 'warn' : 'ok', 'support_sla', '客服 SLA', Number(tickets.overdue || 0) ? `${tickets.overdue} 个工单已超时` : '暂无超时工单', `${tickets.open || 0} open / ${tickets.all || 0} all`),
   ];
@@ -28420,6 +28478,7 @@ async function adminSystemHealth() {
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
+      { detail: `${avatarReconciliation.summary.providerCreditDue || 0} 供应商待核销 / ${avatarReconciliation.summary.quotaRefundDue || 0} 用户额度待返还`, label: 'AI 成本与赔付', status: avatarReconciliation.summary.actionRequired ? 'warn' : 'ok', value: avatarReconciliation.summary.actionRequired || 0 },
       { detail: `${processingAvatarAnimationJobs.length} 处理中 / ${avatarAnimationJobs.length} 总任务`, label: '灵伴动效生成', status: stuckAvatarAnimationJobs.length ? 'warn' : 'ok', value: stuckAvatarAnimationJobs.length },
       { detail: `${moderation.pending || 0} 待处理 / ${moderation.escalated || 0} 已升级`, label: '内容安全任务', status: moderation.escalated ? 'warn' : 'ok', value: moderation.pending || 0 },
       { detail: `${moderation.sampleUnreviewed || 0} 待复审 / ${moderation.qualitySamples || 0} 抽样`, label: '内容安全样本', status: moderation.sampleUnreviewed ? 'warn' : 'ok', value: moderation.sampleUnreviewed || 0 },
@@ -28480,6 +28539,7 @@ function adminPermissionRows() {
     ['calendar.view', '查看宠物日历', '宠物'],
     ['calendar.edit', '修正宠物日历记录', '宠物'],
     ['ai.avatar.view', '查看 AI 灵伴任务、素材和反馈', 'AI'],
+    ['ai.avatar.compensate', '处理 AI 任务、成本对账与用户赔付', 'AI'],
     ['ai.avatar.sample', '沉淀和复核 AI 灵伴样本', 'AI'],
     ['ai.chat.view_summary', '查看 AI 对话摘要和风险标签', 'AI'],
     ['moderation.view', '查看内容安全任务池', '内容安全'],
@@ -28698,6 +28758,8 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/(tag|quality-review)$/u.test(path)) return 'moderation.sample_review';
   if (path.startsWith('/admin/ai/pet-chat')) return 'ai.chat.view_summary';
   if (/^\/admin\/ai\/avatar-(jobs|animation-jobs)\/[^/]+\/apply$/u.test(path)) return 'pet.media_moderate';
+  if (/^\/admin\/ai\/avatar-jobs\/[^/]+\/(?:mark-failed|reconciliation|refresh|refund-quota|retry)$/u.test(path)) return 'ai.avatar.compensate';
+  if (/^\/admin\/ai\/avatar-animation-jobs\/[^/]+\/(?:mark-failed|refresh|retry)$/u.test(path)) return 'ai.avatar.compensate';
   if (/^\/admin\/ai\/avatar-(jobs|animation-jobs)\/[^/]+/u.test(path)) return 'ai.avatar.sample';
   if (path.startsWith('/admin/ai/avatar-samples')) return httpMethod === 'GET' ? 'ai.avatar.view' : 'ai.avatar.sample';
   if (path.startsWith('/admin/ai/avatar-feedback')) return httpMethod === 'GET' ? 'ai.avatar.view' : 'ai.avatar.sample';
@@ -29886,13 +29948,13 @@ function adminReadinessModules(context) {
       key: 'ai_avatar',
       module: 'AI 灵伴生成',
       group: 'AI',
-      status: aiRuntime.ready ? 'partial' : 'blocked',
+      status: aiRuntime.ready ? 'ready' : 'blocked',
       evidence: aiRuntime.ready
-        ? `真实 AI 运行时已就绪：图片 ${aiRuntime.avatarProvider}、动效 ${aiRuntime.animationEnabled ? aiRuntime.animationProvider : '已关闭'}、对话 ${aiRuntime.chatProvider}；后台可看任务状态、卡住任务、供应商、素材、反馈、重试、标失败、人工返还和供应商失败自动返还额度。`
+        ? `真实 AI 运行时已就绪：图片 ${aiRuntime.avatarProvider}、动效 ${aiRuntime.animationEnabled ? aiRuntime.animationProvider : '已关闭'}、对话 ${aiRuntime.chatProvider}；后台已覆盖逐任务阶段 SLA、供应商 p95、失败责任归因、成本/额度对账、自动返还和可切换供应商的免费赔付重试。`
         : `AI 运行时未就绪：${aiRuntime.missing.join('；') || '供应商配置异常'}；后台任务治理、失败返还和人工处置基座已接入。`,
-      mobileLinkage: '额度、功能开关、结果应用和失败状态会联动移动端生成页与首页形象。',
+      mobileLinkage: '额度、功能开关、结果应用和失败状态会联动移动端生成页与首页形象；补偿重试不占用户当日额度，并可由移动端恢复为最新任务。',
       nextStep: aiRuntime.ready
-        ? '生产期补供应商 SLA、失败归因成本对账和更细的多供应商赔付 SOP。'
+        ? '生产期按后台待对账队列核销供应商工单与赔付凭证，持续复盘 p95、超 SLA、拒赔和跨供应商重试。'
         : `先补齐真实 AI 供应商配置：${aiRuntime.missing.join('；') || '检查图片、动效和对话 provider'}。`,
     },
     {
@@ -31564,7 +31626,10 @@ function adminAvatarJobs() {
         providerTraceLatestStageLabel: latestProviderTrace?.stageLabel || '',
         providerTraceLatestStatus: latestProviderTrace?.providerStatus || '',
         promptVersion: job.promptVersion || '',
+        failureAttribution: adminAiFailureAttribution(job),
+        providerReconciliation: adminAiJobReconciliation(job),
         quotaConsumed: Boolean(job.quotaConsumed),
+        quotaCompensated: Boolean(job.quotaCompensated),
         quotaDay,
         quotaRefundable: avatarJobQuotaRefundable(job),
         quotaRefunded: avatarJobQuotaAlreadyRefunded(job),
@@ -31574,6 +31639,7 @@ function adminAvatarJobs() {
         quotaRefundSource: job.quotaRefundSource || (job.adminQuotaRefundedAt ? 'admin' : ''),
         quotaWindowExpired: Boolean(job.quotaConsumed) && !avatarJobQuotaAlreadyRefunded(job) && Boolean(quotaDay) && quotaDay !== todayUsageKey(),
         resultUrl: job.resultUrl,
+        sla: adminAiJobSla(job),
         slaTimeline: adminAiSlaTimeline(job),
         sourceResultUrl: job.sourceResultUrl || '',
         submittedAt: job.submittedAt || '',
@@ -32850,6 +32916,7 @@ function adminAiUsage(options = {}) {
   const avatarDurations = ready.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
   const ownerPhones = new Set(avatarJobs.map((job) => job.ownerPhone).filter(Boolean));
   const errorCodes = adminErrorCodeRows(avatarJobs);
+  const reconciliation = adminAiProviderReconciliation(avatarJobs);
 
   const providers = ['gpt-image-2', 'ttapi-flux-edits', 'ttapi-midjourney', 'mock']
     .map((provider) => {
@@ -32862,9 +32929,13 @@ function adminAiUsage(options = {}) {
       const providerTraceEntries = jobs.flatMap((job) => adminAiProviderTraceRows(job));
       const durations = providerReady.map(analyticsAvatarDurationSeconds).filter((value) => value !== null);
       const providerErrors = adminErrorCodeRows(jobs);
+      const providerReconciliation = reconciliation.providers.find((item) => item.provider === provider) || {};
       return {
+        actionRequired: Number(providerReconciliation.actionRequired || 0),
         averageSeconds: analyticsAverage(durations),
+        billedCost: Number(providerReconciliation.billedCost || 0),
         cost: Number(usage.cost || 0),
+        creditedCost: Number(providerReconciliation.creditedCost || 0),
         creditsCost: Number(usage.creditsCost || 0),
         failed: Number(usage.failed || providerFailed.length || 0),
         jobCount: jobs.length,
@@ -32872,10 +32943,14 @@ function adminAiUsage(options = {}) {
         latestJobAt: jobs.map((job) => analyticsTimeMs(job.updatedAt || job.createdAt)).sort((a, b) => b - a)[0] || 0,
         processing: providerProcessing.length,
         provider,
+        p50ProviderMs: Number(providerReconciliation.p50ProviderMs || 0),
+        p95ProviderMs: Number(providerReconciliation.p95ProviderMs || 0),
+        p95TotalMs: Number(providerReconciliation.p95TotalMs || 0),
         quota: Number(usage.quota || 0),
         ready: providerReady.length,
         requests: Number(usage.requests || jobs.length || 0),
         roleLabel: adminProviderRoleLabel(provider),
+        slaBreached: Number(providerReconciliation.slaBreached || 0),
         stuck: providerStuck.length,
         succeeded: Number(usage.succeeded || providerReady.length || 0),
         successRate: analyticsPercent(providerReady.length, providerReady.length + providerFailed.length),
@@ -32897,8 +32972,7 @@ function adminAiUsage(options = {}) {
   return {
     buckets,
     dataGaps: [
-      { label: '历史 AI 成本', reason: '新任务已记录供应商调用成本快照；历史任务仍只有累计成本，不能反推逐次费用。' },
-      { label: '供应商完整 SLA', reason: '新任务已记录 submit/status/action 调用耗时；更细的 queued/running/completed 节点仍依赖上游返回。' },
+      { label: '历史 AI 成本', reason: `逐任务成本对账已启用；仍有 ${reconciliation.summary.costSnapshotMissing} 个历史任务缺少供应商成本快照，后台会单独标记为“缺成本快照”，不再混入已平账成本。` },
       { label: 'DeepSeek 单次成本', reason: '当前记录 token 总量，未配置单价和每条消息成本快照。' },
     ],
     days,
@@ -32909,6 +32983,7 @@ function adminAiUsage(options = {}) {
     },
     providers,
     quotaRefundPolicy: avatarFailureRefundPolicySummary(),
+    reconciliation,
     summary: {
       actionRecords: actionReplies.length,
       averageReplyLength,
@@ -32921,6 +32996,7 @@ function adminAiUsage(options = {}) {
       avatarStarted: avatarJobs.length,
       avatarStuck: stuck.length,
       avatarSuccessRate: analyticsPercent(windowAvatarReady, windowAvatarReady + windowAvatarFailed),
+      avatarSlaBreached: reconciliation.summary.slaBreached,
       averageAvatarJobsPerUser: ownerPhones.size ? Math.round((avatarJobs.length / ownerPhones.size) * 10) / 10 : 0,
       deepseekAverageTokens: deepseekRequests ? Math.round(deepseekTokens / deepseekRequests) : 0,
       deepseekRequests,
@@ -32934,6 +33010,9 @@ function adminAiUsage(options = {}) {
       providerTraceCreditsCost: avatarProviderTraceCostEntries.reduce((sum, trace) => sum + Number(trace.response?.cost?.creditsCost || 0), 0),
       providerTraceEntries: avatarProviderTraceEntries.length,
       providerTraceJobs: avatarJobs.filter((job) => adminAiProviderTraceRows(job).length > 0).length,
+      reconciliationActionRequired: reconciliation.summary.actionRequired,
+      reconciliationResolved: reconciliation.summary.resolved,
+      unreconciledProviderCost: reconciliation.summary.unreconciledCost,
       todayAvatarQuotaRefunded: todayQuotaRefunded.length,
       todayPetAvatarCount: todayAvatarUsage.count,
       todayPetAvatarUsers: todayAvatarUsage.users,
@@ -33019,6 +33098,305 @@ function adminAiSlaTimeline(job) {
       ...item,
       elapsedSeconds: index === 0 ? 0 : Math.round((item.timestamp - rows[0].timestamp) / 1000),
     }));
+}
+
+const AI_AVATAR_PROVIDER_SLA_TARGETS = {
+  'gpt-image-2': { submitMs: 2 * 60 * 1000, totalMs: 15 * 60 * 1000 },
+  'ttapi-flux-edits': { submitMs: 2 * 60 * 1000, totalMs: 10 * 60 * 1000 },
+  'ttapi-midjourney': { submitMs: 2 * 60 * 1000, totalMs: 20 * 60 * 1000 },
+  mock: { submitMs: 5 * 1000, totalMs: 30 * 1000 },
+};
+
+function adminAiPercentile(values = [], percentile = 0.95) {
+  const numbers = values.map(Number).filter(Number.isFinite).filter((value) => value >= 0).sort((left, right) => left - right);
+  if (!numbers.length) return 0;
+  const index = Math.min(numbers.length - 1, Math.max(0, Math.ceil(numbers.length * percentile) - 1));
+  return Math.round(numbers[index]);
+}
+
+function adminAiProviderStatusKind(value) {
+  const status = String(value || '').trim().toLowerCase();
+  if (/(complete|completed|success|succeeded|ready)/u.test(status)) return 'completed';
+  if (/(processing|running|generating|progress)/u.test(status)) return 'processing';
+  if (/(queued|pending|submitted|waiting)/u.test(status)) return 'queued';
+  if (/(fail|error|cancel|reject|timeout)/u.test(status)) return 'failed';
+  return '';
+}
+
+function adminAiJobSla(job) {
+  const provider = String(job?.provider || 'mock');
+  const target = AI_AVATAR_PROVIDER_SLA_TARGETS[provider] || AI_AVATAR_PROVIDER_SLA_TARGETS['gpt-image-2'];
+  const createdAtMs = analyticsTimeMs(job?.createdAt);
+  const submittedAtMs = analyticsTimeMs(job?.submittedAt);
+  const traces = adminAiProviderTraceRows(job);
+  const processingAtMs = analyticsTimeMs(traces.find((trace) => adminAiProviderStatusKind(trace.providerStatus) === 'processing')?.at);
+  const providerCompletedAtMs = analyticsTimeMs(traces.find((trace) => adminAiProviderStatusKind(trace.providerStatus) === 'completed')?.at);
+  const terminalAtMs = analyticsTimeMs(job?.readyAt || (['failed', 'ready'].includes(String(job?.status || '')) ? job?.updatedAt : ''));
+  const now = Date.now();
+  const elapsedEndMs = terminalAtMs || now;
+  const submitMs = createdAtMs && submittedAtMs ? Math.max(0, submittedAtMs - createdAtMs) : 0;
+  const queueMs = submittedAtMs && processingAtMs ? Math.max(0, processingAtMs - submittedAtMs) : 0;
+  const providerMs = submittedAtMs && (providerCompletedAtMs || terminalAtMs)
+    ? Math.max(0, (providerCompletedAtMs || terminalAtMs) - submittedAtMs)
+    : 0;
+  const deliveryMs = providerCompletedAtMs && terminalAtMs ? Math.max(0, terminalAtMs - providerCompletedAtMs) : 0;
+  const totalMs = createdAtMs ? Math.max(0, elapsedEndMs - createdAtMs) : 0;
+  const missingStages = [
+    !createdAtMs ? 'created' : '',
+    provider !== 'mock' && !submittedAtMs ? 'submitted' : '',
+    provider !== 'mock' && !processingAtMs ? 'processing' : '',
+    job?.status === 'ready' && provider !== 'mock' && !providerCompletedAtMs ? 'provider_completed' : '',
+    ['failed', 'ready'].includes(String(job?.status || '')) && !terminalAtMs ? 'terminal' : '',
+  ].filter(Boolean);
+  const submitBreached = Boolean(submittedAtMs && submitMs > target.submitMs)
+    || Boolean(!submittedAtMs && String(job?.status || '') === 'processing' && totalMs > target.submitMs);
+  const totalBreached = totalMs > target.totalMs;
+  const status = totalBreached || submitBreached ? 'breached' : ['failed', 'ready'].includes(String(job?.status || '')) ? 'met' : 'tracking';
+  return {
+    completeness: missingStages.length ? 'partial' : 'complete',
+    deliveryMs,
+    missingStages,
+    providerMs,
+    queueMs,
+    status,
+    statusLabel: status === 'breached' ? '已超 SLA' : status === 'met' ? 'SLA 达标' : '跟踪中',
+    submitMs,
+    targetSubmitMs: target.submitMs,
+    targetTotalMs: target.totalMs,
+    totalMs,
+  };
+}
+
+function adminAiFailureAttribution(job) {
+  const code = String(job?.errorCode || '').trim().toUpperCase();
+  const providerStatus = String(job?.providerStatus || '').trim().toLowerCase();
+  let key = 'none';
+  let label = '无失败';
+  let liableParty = 'none';
+  if (String(job?.status || '') === 'failed') {
+    if (/^ADMIN_/u.test(code)) {
+      key = 'operator';
+      label = '运营人工处置';
+      liableParty = 'operator';
+    } else if (/(MIRROR|STORAGE|COS|DELIVERY)/u.test(code)) {
+      key = 'platform_delivery';
+      label = '平台存储/交付';
+      liableParty = 'platform';
+    } else if (/(TIMEOUT)/u.test(code) || /(timeout)/u.test(providerStatus)) {
+      key = 'provider_timeout';
+      label = '供应商超时';
+      liableParty = 'provider';
+    } else if (/(PROVIDER|UPSTREAM)/u.test(code) || /(fail|error|reject|cancel)/u.test(providerStatus)) {
+      key = 'provider_failure';
+      label = '供应商失败';
+      liableParty = 'provider';
+    } else if (/(MEDIA|INPUT|CONTENT|SAFETY)/u.test(code)) {
+      key = 'input_or_content';
+      label = '素材/内容不合格';
+      liableParty = 'user_input';
+    } else {
+      key = 'unknown';
+      label = '待人工归因';
+      liableParty = 'unknown';
+    }
+  }
+  return {
+    key,
+    label,
+    liableParty,
+    providerClaimRecommended: liableParty === 'provider',
+  };
+}
+
+function adminAiJobReconciliation(job) {
+  const cost = adminAiProviderCostSnapshot(job);
+  const attribution = adminAiFailureAttribution(job);
+  const resolution = job?.providerReconciliation && typeof job.providerReconciliation === 'object' ? job.providerReconciliation : {};
+  const billed = Boolean(cost.cost || cost.creditsCost || cost.quota);
+  const terminal = ['failed', 'ready'].includes(String(job?.status || ''));
+  const costSnapshotMissing = terminal && job?.provider !== 'mock' && !cost.updatedAt;
+  const quotaRefundDue = String(job?.status || '') === 'failed'
+    && Boolean(avatarFailureRefundCategory(job))
+    && Boolean(job?.quotaConsumed)
+    && !avatarJobQuotaAlreadyRefunded(job)
+    && avatarJobQuotaDay(job) === todayUsageKey();
+  const providerCreditDue = String(job?.status || '') === 'failed'
+    && billed
+    && attribution.liableParty === 'provider'
+    && resolution.status !== 'resolved';
+  let status = terminal ? 'balanced' : 'tracking';
+  if (resolution.status === 'resolved') status = 'resolved';
+  else if (quotaRefundDue || providerCreditDue) status = 'action_required';
+  else if (costSnapshotMissing) status = 'unpriced';
+  return {
+    billed,
+    cost,
+    costSnapshotMissing,
+    providerCreditDue,
+    providerReference: resolution.providerReference || '',
+    providerResolution: resolution.providerResolution || '',
+    quotaRefundDue,
+    resolvedAt: resolution.resolvedAt || '',
+    resolvedBy: resolution.resolvedBy || '',
+    retryJobId: resolution.retryJobId || '',
+    retryProvider: resolution.retryProvider || '',
+    status,
+    statusLabel: {
+      action_required: '待赔付对账',
+      balanced: '已平账',
+      resolved: '已结案',
+      tracking: '任务进行中',
+      unpriced: '缺成本快照',
+    }[status] || status,
+    userAction: resolution.userAction || '',
+  };
+}
+
+function adminAiProviderReconciliation(jobsInput = Object.values(state.avatarJobs || {})) {
+  const jobs = Array.isArray(jobsInput) ? jobsInput : [];
+  const cases = jobs.map((job) => {
+    const owner = job?.ownerPhone ? state.users?.[job.ownerPhone] : null;
+    return {
+      attribution: adminAiFailureAttribution(job),
+      createdAt: job?.createdAt || '',
+      errorCode: job?.errorCode || '',
+      errorMessage: job?.errorMessage || job?.lastStatusError || '',
+      jobId: job?.id || '',
+      ownerName: owner?.ownerName || '',
+      ownerPhone: job?.ownerPhone || '',
+      petName: job?.petName || '',
+      provider: job?.provider || 'mock',
+      reconciliation: adminAiJobReconciliation(job),
+      sla: adminAiJobSla(job),
+      status: job?.status || '',
+      updatedAt: job?.updatedAt || job?.createdAt || '',
+    };
+  });
+  const visibleCases = cases
+    .filter((item) => item.status === 'failed' || item.reconciliation.status !== 'balanced' || item.reconciliation.providerResolution)
+    .sort((left, right) => analyticsTimeMs(right.updatedAt) - analyticsTimeMs(left.updatedAt));
+  const providerKeys = [...new Set(cases.map((item) => item.provider).filter(Boolean))];
+  const providers = providerKeys.map((provider) => {
+    const rows = cases.filter((item) => item.provider === provider);
+    const terminalRows = rows.filter((item) => ['failed', 'ready'].includes(item.status));
+    const totalDurations = terminalRows.map((item) => item.sla.totalMs).filter((value) => Number.isFinite(value) && value >= 0);
+    const providerDurations = terminalRows.map((item) => item.sla.providerMs).filter((value) => Number.isFinite(value) && value >= 0);
+    return {
+      actionRequired: rows.filter((item) => item.reconciliation.status === 'action_required').length,
+      billedCost: rows.reduce((sum, item) => sum + Number(item.reconciliation.cost.cost || 0), 0),
+      creditedCost: rows.filter((item) => item.reconciliation.providerResolution === 'credited').reduce((sum, item) => sum + Number(item.reconciliation.cost.cost || 0), 0),
+      failed: rows.filter((item) => item.status === 'failed').length,
+      jobCount: rows.length,
+      p50ProviderMs: adminAiPercentile(providerDurations, 0.5),
+      p95ProviderMs: adminAiPercentile(providerDurations, 0.95),
+      p95TotalMs: adminAiPercentile(totalDurations, 0.95),
+      provider,
+      ready: rows.filter((item) => item.status === 'ready').length,
+      slaBreached: rows.filter((item) => item.sla.status === 'breached').length,
+    };
+  });
+  return {
+    cases: visibleCases.slice(0, 200),
+    generatedAt: new Date().toISOString(),
+    providers,
+    summary: {
+      actionRequired: cases.filter((item) => item.reconciliation.status === 'action_required').length,
+      costSnapshotMissing: cases.filter((item) => item.reconciliation.costSnapshotMissing).length,
+      crossProviderRetries: cases.filter((item) => item.reconciliation.retryJobId && item.reconciliation.retryProvider && item.reconciliation.retryProvider !== item.provider).length,
+      failed: cases.filter((item) => item.status === 'failed').length,
+      freeCompensationRetries: jobs.filter((job) => job?.compensationMode === true).length,
+      providerCreditDue: cases.filter((item) => item.reconciliation.providerCreditDue).length,
+      quotaRefundDue: cases.filter((item) => item.reconciliation.quotaRefundDue).length,
+      resolved: cases.filter((item) => item.reconciliation.status === 'resolved').length,
+      slaBreached: cases.filter((item) => item.sla.status === 'breached').length,
+      total: cases.length,
+      unreconciledCost: cases.filter((item) => item.reconciliation.providerCreditDue).reduce((sum, item) => sum + Number(item.reconciliation.cost.cost || 0), 0),
+    },
+  };
+}
+
+async function resolveAdminAiProviderReconciliation(admin, req, job, owner, body = {}) {
+  if (!job || !owner) return { error: 'AI 任务不存在', statusCode: 404 };
+  if (!['failed', 'ready'].includes(String(job.status || ''))) return { error: '只有已结束任务可以完成成本与赔付对账', statusCode: 409 };
+  if (job.providerReconciliation?.status === 'resolved') return { error: '该任务已经完成对账结案', statusCode: 409 };
+  const providerResolution = String(body.providerResolution || '').trim();
+  if (!['credited', 'rejected', 'waived'].includes(providerResolution)) return { error: '请选择供应商入账、拒赔或平台承担', statusCode: 400 };
+  const providerReference = String(body.providerReference || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (providerResolution !== 'waived' && providerReference.length < 2) return { error: '请填写供应商工单号或结算凭证', statusCode: 400 };
+  const userAction = String(body.userAction || 'none').trim();
+  if (!['none', 'refund_and_retry_free', 'refund_quota', 'retry_free'].includes(userAction)) return { error: '用户赔付动作无效', statusCode: 400 };
+  if (job.status !== 'failed' && userAction !== 'none') return { error: '成功任务只能完成供应商成本对账，不能执行用户赔付', statusCode: 409 };
+  const reconciliationBefore = adminAiJobReconciliation(job);
+  if (reconciliationBefore.quotaRefundDue && !['refund_and_retry_free', 'refund_quota'].includes(userAction)) {
+    return { error: '该任务仍欠用户生成额度，结案时必须返还额度', statusCode: 409 };
+  }
+  const reason = adminReason(body, 'AI 供应商成本与赔付对账结案');
+  if (reason.length < 4) return { error: '请填写 4 个字以上的对账结案说明', statusCode: 400 };
+  const retryProvider = String(body.retryProvider || job.provider || effectivePetAvatarProvider()).trim();
+  const needsRetry = userAction === 'retry_free' || userAction === 'refund_and_retry_free';
+  if (needsRetry) {
+    const retryMedia = job.mediaId ? state.mediaUploads?.[job.mediaId] : null;
+    if (!retryMedia || retryMedia.ownerPhone !== owner.phone) return { error: '原始照片缺失，不能发起补偿重试', statusCode: 409 };
+    if (!isPetScopedMediaUpload(retryMedia)) return { error: '原始照片不属于宠物业务，不能发起补偿重试', statusCode: 409 };
+    const moderationStatus = normalizeMediaModerationStatus(retryMedia.moderationStatus, retryMedia);
+    if (moderationStatus !== 'approved' || retryMedia.analysis?.canGenerate === false) return { error: '原始照片当前不允许生成，不能发起补偿重试', statusCode: 409 };
+    const retryPetId = String(job.petId || retryMedia.petId || '').trim();
+    const retryPet = retryPetId ? petByIdForUser(owner, retryPetId) : selectedPetFor(owner);
+    if (!retryPet) return { error: '原任务关联的宠物档案已不存在，不能发起补偿重试', statusCode: 409 };
+    if (!['gpt-image-2', 'ttapi-flux-edits', 'ttapi-midjourney'].includes(retryProvider) || !petAvatarProviderOperational(retryProvider)) {
+      return { error: '补偿重试供应商未配置或不可用', statusCode: 409 };
+    }
+  }
+  const before = cloneJson(job);
+  let refundOutcome = 'not_requested';
+  if (userAction === 'refund_quota' || userAction === 'refund_and_retry_free') {
+    if (avatarJobQuotaAlreadyRefunded(job)) {
+      refundOutcome = 'already_refunded';
+    } else if (avatarJobQuotaRefundable(job)) {
+      const refundResult = refundAvatarJobQuota(owner, job, {
+        by: admin?.username || 'admin',
+        reason: `供应商对账赔付：${reason}`,
+        source: 'admin',
+      });
+      if (refundResult.error) return refundResult;
+      refundOutcome = 'refunded';
+    } else if (avatarJobQuotaDay(job) !== todayUsageKey()) {
+      refundOutcome = 'quota_window_expired';
+    } else {
+      return { error: '该任务当前不能返还额度', statusCode: 409 };
+    }
+  }
+  let retryJob = null;
+  if (needsRetry) {
+    const retryResult = await createAvatarGenerationJob(req, owner, job.mediaId, job.id, {
+      compensationCreatedBy: admin?.username || 'admin',
+      compensationMode: true,
+      provider: retryProvider,
+    });
+    if (retryResult.error) return retryResult;
+    retryJob = retryResult.job;
+  }
+  const now = new Date().toISOString();
+  job.providerReconciliation = {
+    providerReference,
+    providerResolution,
+    reason,
+    refundOutcome,
+    resolvedAt: now,
+    resolvedBy: admin?.username || 'admin',
+    retryJobId: retryJob?.id || '',
+    retryProvider: retryJob?.provider || '',
+    sourceProvider: job.provider || '',
+    status: 'resolved',
+    userAction,
+    version: 'ai-provider-reconciliation-v1',
+  };
+  touchAvatarJob(job);
+  writeAdminAudit(admin, 'ai.avatar.provider_reconciliation.resolve', 'avatar_job', job.id, before, job, reason);
+  return {
+    case: adminAiProviderReconciliation([job]).cases[0] || null,
+    retryJob: retryJob ? adminAvatarJobs().find((item) => item.id === retryJob.id) || retryJob : null,
+  };
 }
 
 function adminSocialPosts() {
@@ -37566,6 +37944,21 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     const result = unhidePetChatAdminMessage(admin, decodeURIComponent(adminPetChatUnhideMatch[1]), body);
     if (result.error) {
       fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PET_CHAT_UNHIDE_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminAvatarReconciliationMatch = pathname.match(/^\/admin\/ai\/avatar-jobs\/([^/]+)\/reconciliation$/);
+  if (req.method === 'POST' && adminAvatarReconciliationMatch) {
+    const jobId = decodeURIComponent(adminAvatarReconciliationMatch[1]);
+    const job = state.avatarJobs?.[jobId];
+    const owner = job?.ownerPhone ? state.users[job.ownerPhone] : null;
+    const result = await resolveAdminAiProviderReconciliation(admin, req, job, owner, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_AI_PROVIDER_RECONCILIATION_INVALID');
       return true;
     }
     saveState();

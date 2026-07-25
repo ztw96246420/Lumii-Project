@@ -137,10 +137,11 @@ async function main() {
     const adminToken = await loginAdmin();
     const initial = await request('/admin/launch/readiness', { token: adminToken });
     const aiAvatarModule = initial.data.modules.find((item) => item.key === 'ai_avatar');
-    assert.equal(aiAvatarModule?.status, 'partial', 'unrelated production health failures must not block a ready AI runtime');
+    assert.equal(aiAvatarModule?.status, 'ready', 'unrelated production health failures must not block a ready AI runtime');
     assert.match(aiAvatarModule?.evidence || '', /gpt-image-2/);
     assert.match(aiAvatarModule?.evidence || '', /doubao-seedance-1-5-pro/);
     assert.match(aiAvatarModule?.evidence || '', /deepseek/);
+    assert.match(aiAvatarModule?.evidence || '', /成本\/额度对账/);
     assert.ok(initial.data.gaps.some((item) => item.status === 'blocked'), 'the fixture must retain unrelated blocked production gaps');
     const initialQuestion = rowById(initial.data.questions, 'q-domain');
     assert.ok(initialQuestion, 'missing q-domain question');
