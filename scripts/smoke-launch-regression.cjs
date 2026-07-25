@@ -52,6 +52,7 @@ const suites = [
   { key: 'pet-media-admin', title: 'Admin pet media replace', script: 'smoke-admin-pet-media-replace.cjs', timeoutMs: 180_000 },
   { key: 'place-reviews', title: 'Place public reviews', script: 'smoke-place-public-reviews.cjs', timeoutMs: 180_000 },
   { key: 'place-contributions', title: 'Place contributions', script: 'smoke-place-contributions.cjs', timeoutMs: 180_000 },
+  { key: 'place-reward-settlement', title: 'Place reward settlement and redemption', script: 'smoke-place-reward-settlement.cjs', timeoutMs: 180_000 },
 
   { key: 'notifications', title: 'Notification deep links', script: 'smoke-notification-deep-links.cjs', timeoutMs: 180_000 },
   { key: 'notification-audience-packages', title: 'Notification audience packages', script: 'smoke-notification-audience-packages.cjs', timeoutMs: 180_000 },

@@ -144,6 +144,7 @@ const userRiskTagKeyMap = Object.fromEntries(userRiskTagOptions.flatMap((item) =
 const CONFIG_HIGH_RISK_CONFIRM_TEXT = '确认发布高风险配置';
 
 const $ = (id) => document.getElementById(id);
+const adminCan = (permission) => !permission || !Array.isArray(state.admin?.permissionKeys) || state.admin.permissionKeys.includes(permission);
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -1170,6 +1171,18 @@ async function onContentClick(event) {
       await handlePlaceContributionVoid(button);
       return;
     }
+    if (action === 'place-reward-settle') {
+      await handlePlaceRewardSettlement(button);
+      return;
+    }
+    if (action === 'place-reward-fulfill') {
+      await handlePlaceRewardFulfillment(button);
+      return;
+    }
+    if (action === 'place-reward-cancel') {
+      await handlePlaceRewardCancel(button);
+      return;
+    }
     if (action === 'place-template-create') {
       await handlePlaceTemplateCreate();
       return;
@@ -1307,6 +1320,7 @@ function placeModerationTemplateSource(template) {
 }
 
 function renderPlaceModerationTemplates(templates) {
+  const canModerate = adminCan('place.moderate');
   return tableHtml(templates, [
     ['模板', (template) => `
       <div class="cell-title">${escapeHtml(template.title)}</div>
@@ -1319,7 +1333,7 @@ function renderPlaceModerationTemplates(templates) {
       <div class="cell-sub">${template.lastUsedAt ? `最近使用 ${formatTime(template.lastUsedAt)}` : '暂未使用'}</div>
     `],
     ['默认原因', (template) => `<div class="template-reason">${escapeHtml(template.reason)}</div>`],
-    ['操作', (template) => template.builtin ? '<span class="cell-sub">内置模板不可改</span>' : `
+    ['操作', (template) => !canModerate ? '<span class="cell-sub">只读</span>' : template.builtin ? '<span class="cell-sub">内置模板不可改</span>' : `
       <div class="actions">
         <button
           class="small-button"
@@ -1513,7 +1527,7 @@ async function adminPlaceById(placeId) {
 }
 
 function clearPlaceAdminCaches() {
-  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeContributions', 'placeModerationTemplates', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
+  ['audit', 'exports', 'moderation', 'notifications', 'places', 'placeContributions', 'placeModerationTemplates', 'placeRewards', 'placeReviews', 'placeSubmissions', 'socialRelations', 'summary'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -1713,6 +1727,54 @@ async function handlePlaceContributionVoid(button) {
   return true;
 }
 
+async function handlePlaceRewardSettlement(button) {
+  const defaultStart = String(button.dataset.periodStart || '').slice(0, 10);
+  const defaultEnd = String(button.dataset.periodEnd || '').slice(0, 10);
+  const periodStart = window.prompt('活动开始日期（含当天，YYYY-MM-DD）', defaultStart);
+  if (periodStart === null) return false;
+  const periodEnd = window.prompt('活动结束日期（不含当天，YYYY-MM-DD）', defaultEnd);
+  if (periodEnd === null) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart.trim()) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd.trim())) throw new Error('请按 YYYY-MM-DD 填写活动周期');
+  if (!window.confirm(`确认结算 ${periodStart.trim()} 至 ${periodEnd.trim()} 的地点活动？\n\n结算会冻结榜单和策略，并为符合条件的用户生成领取资格。`)) return false;
+  const result = await post('/admin/places/rewards/settle', {
+    periodEnd: `${periodEnd.trim()}T00:00:00.000Z`,
+    periodStart: `${periodStart.trim()}T00:00:00.000Z`,
+  });
+  clearPlaceAdminCaches();
+  showToast(result.duplicate ? '该周期已结算，未重复生成奖励' : `活动已结算，生成 ${numberText((result.claims || []).length)} 份奖励`);
+  await render(true);
+  return true;
+}
+
+async function handlePlaceRewardFulfillment(button) {
+  const id = button.dataset.id || '';
+  const label = button.dataset.label || '地点活动奖励';
+  const fulfillmentReference = window.prompt(`填写「${label}」发放凭证或履约说明`, '已完成发放，凭证：');
+  if (fulfillmentReference === null) return false;
+  const trimmedReference = fulfillmentReference.replace(/\s+/g, ' ').trim();
+  if (trimmedReference.length < 2) throw new Error('请填写发放凭证或履约说明');
+  await post(`/admin/places/rewards/claims/${encodeURIComponent(id)}/fulfill`, { fulfillmentReference: trimmedReference });
+  clearPlaceAdminCaches();
+  showToast('地点活动奖励已确认发放');
+  await render(true);
+  return true;
+}
+
+async function handlePlaceRewardCancel(button) {
+  const id = button.dataset.id || '';
+  const label = button.dataset.label || '地点活动奖励';
+  const reason = window.prompt(`取消「${label}」的原因`, '运营复核后取消奖励资格');
+  if (reason === null) return false;
+  const trimmedReason = reason.replace(/\s+/g, ' ').trim();
+  if (trimmedReason.length < 4) throw new Error('请填写 4 个字以上的取消原因');
+  if (!window.confirm('确认取消这条奖励资格？该操作会写入审计且不能直接恢复。')) return false;
+  await post(`/admin/places/rewards/claims/${encodeURIComponent(id)}/cancel`, { reason: trimmedReason });
+  clearPlaceAdminCaches();
+  showToast('地点活动奖励已取消');
+  await render(true);
+  return true;
+}
+
 async function assignModerationTask(button) {
   const taskId = button.dataset.id;
   const title = button.dataset.title || '审核任务';
@@ -1825,7 +1887,7 @@ async function unhidePetChatMessage(button) {
 }
 
 function clearOperationalCaches() {
-  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dashboardAlerts', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'pendingApprovals', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionBatchApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
+  ['aiMedia', 'aiPromptVersions', 'aiUsage', 'audit', 'avatarAnimationJobs', 'avatarFeedback', 'avatarJobs', 'avatarSamples', 'dashboardAlerts', 'dataClearApprovals', 'feedback', 'legalDocuments', 'mediaModeration', 'moderation', 'notifications', 'pendingApprovals', 'petCalendar', 'petChat', 'petChatQualityReview', 'pets', 'places', 'placeContributions', 'placeRewards', 'placeReviews', 'placeSubmissions', 'reports', 'sanctionAppeals', 'sanctionApprovals', 'sanctionBatchApprovals', 'sanctionPolicy', 'sanctionTemplates', 'sanctions', 'socialComments', 'socialPosts', 'socialRelations', 'summary', 'ticketReplyTemplates', 'tickets', 'users'].forEach((key) => {
     state.cache[key] = null;
   });
 }
@@ -7454,6 +7516,7 @@ function placeSubmissionDuplicateSummary(submission) {
 
 function renderPlaceContributions(contributions) {
   const rows = Array.isArray(contributions) ? contributions.slice(0, 12) : [];
+  const canAdjust = adminCan('place.reward.settle');
   const signedPoints = (value) => {
     const points = Number(value || 0);
     return `${points > 0 ? '+' : ''}${numberText(points)}`;
@@ -7464,7 +7527,7 @@ function renderPlaceContributions(contributions) {
     ['地点', (row) => `<div>${escapeHtml(row.placeName || row.placeId || '-')}</div><div class="cell-sub">${escapeHtml(row.placeId || '-')}</div>`],
     ['状态', (row) => `${statusPill(row.statusLabel || row.status || '有效')}<div class="cell-sub">${row.voidedAt ? `撤销：${formatTime(row.voidedAt)}` : '计入移动端身份'}</div>`],
     ['来源', (row) => `<div>${escapeHtml(row.submissionId || row.source || '-')}</div><div class="cell-sub">${formatTime(row.createdAt)}</div><div class="cell-sub clamp">${escapeHtml(row.reason || '-')}</div>`],
-    ['操作', (row) => row.canVoid ? `<button class="small-button danger" data-action="place-contribution-void" data-id="${escapeHtml(row.id)}" data-title="${escapeHtml(row.actionLabel || row.id || '')}">撤销</button>` : '<span class="cell-sub">已锁定</span>'],
+    ['操作', (row) => canAdjust && row.canVoid ? `<button class="small-button danger" data-action="place-contribution-void" data-id="${escapeHtml(row.id)}" data-title="${escapeHtml(row.actionLabel || row.id || '')}">撤销</button>` : '<span class="cell-sub">只读/已锁定</span>'],
   ], '暂无地点贡献记录');
 }
 
@@ -7500,6 +7563,52 @@ function renderPlaceContributionLeaderboard(leaderboard, rewardPolicy = {}) {
   `;
 }
 
+function renderPlaceRewardProgram(program = {}) {
+  const claims = Array.isArray(program.claims) ? program.claims.slice(0, 30) : [];
+  const settlements = Array.isArray(program.settlements) ? program.settlements : [];
+  const summary = program.summary || {};
+  const policy = program.policy || {};
+  const preview = program.preview || {};
+  const canSettle = adminCan('place.reward.settle');
+  const canFulfill = adminCan('place.reward.fulfill');
+  const statusTone = (status) => status === 'fulfilled' ? 'ok' : status === 'canceled' || status === 'expired' ? 'bad' : status === 'redeemed' ? 'warn' : '';
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>地点活动奖励</h2>
+          <div class="section-sub">冻结已结束周期的贡献榜单，生成领取资格；用户领取后由独立履约角色登记发放</div>
+        </div>
+        <div class="actions">
+          ${canSettle ? `<button class="small-button" data-action="place-reward-settle" data-period-start="${escapeHtml(preview.periodStart || '')}" data-period-end="${escapeHtml(preview.periodEnd || '')}">结算上期活动</button>` : ''}
+        </div>
+        ${help('同一周期重复提交会幂等返回，重叠周期会被拒绝。结算快照固定策略、排名和分数；审核员不能结算，履约员不能改分。')}
+      </div>
+      <div class="template-summary-row">
+        <span class="risk-badge">周期 ${numberText(settlements.length)}</span>
+        <span class="risk-badge">待领取 ${numberText(summary.available || 0)}</span>
+        <span class="risk-badge">待发放 ${numberText(summary.redeemed || 0)}</span>
+        <span class="risk-badge">已发放 ${numberText(summary.fulfilled || 0)}</span>
+        <span class="risk-badge">超 SLA ${numberText(summary.overdue || 0)}</span>
+        <span class="risk-badge">取消/过期 ${numberText(Number(summary.canceled || 0) + Number(summary.expired || 0))}</span>
+      </div>
+      <div class="switch-panel">
+        <div class="switch-row"><span>周期结算</span>${statusPill(policy.settlementEnabled ? '已开启' : '未开启')}</div>
+        <div class="switch-row"><span>用户领取</span>${statusPill(policy.redemptionEnabled ? '已开启' : '未开启')}</div>
+        <div class="switch-row"><span>规则</span><strong>Top ${numberText(policy.topN || 0)} · 最低 ${numberText(policy.minimumPoints || 0)} 分 · ${escapeHtml(policy.rewardType || 'digital_badge')}</strong></div>
+        <div class="switch-row"><span>时限</span><strong>领取 ${numberText(policy.redemptionWindowDays || 0)} 天 · 履约 ${numberText(policy.fulfillmentSlaDays || 0)} 天</strong></div>
+      </div>
+      ${tableHtml(claims, [
+        ['奖励', (row) => `<div class="cell-title">${escapeHtml(row.rewardLabel || '-')}</div><div class="cell-sub">${escapeHtml(row.rewardTypeLabel || row.rewardType || '-')} · #${numberText(row.rank || 0)} · ${numberText(row.points || 0)} 分</div>`],
+        ['用户', (row) => `<div>${escapeHtml(row.ownerName || '-')}</div><div class="cell-sub">${shortPhone(row.phone)}</div>`],
+        ['周期', (row) => `<div>${String(row.periodStart || '').slice(0, 10)}</div><div class="cell-sub">至 ${String(row.periodEnd || '').slice(0, 10)}</div>`],
+        ['状态', (row) => `${tonePill(row.statusLabel || row.status || '-', statusTone(row.status))}<div class="cell-sub">${row.redeemedAt ? `领取 ${formatTime(row.redeemedAt)}` : `到期 ${formatTime(row.expiresAt)}`}</div>${row.fulfillmentReference ? `<div class="cell-sub clamp">${escapeHtml(row.fulfillmentReference)}</div>` : ''}`],
+        ['操作', (row) => !canFulfill ? '<span class="cell-sub">只读</span>' : row.status === 'redeemed' ? `<div class="actions"><button class="small-button" data-action="place-reward-fulfill" data-id="${escapeHtml(row.id)}" data-label="${escapeHtml(row.rewardLabel || '')}">确认发放</button><button class="small-button danger" data-action="place-reward-cancel" data-id="${escapeHtml(row.id)}" data-label="${escapeHtml(row.rewardLabel || '')}">取消</button></div>` : row.status === 'available' ? `<button class="small-button danger" data-action="place-reward-cancel" data-id="${escapeHtml(row.id)}" data-label="${escapeHtml(row.rewardLabel || '')}">取消资格</button>` : '<span class="cell-sub">已锁定</span>'],
+      ], '暂无活动奖励记录')}
+    </div>
+  `;
+}
+
 function placeQualityEvidence(place) {
   const reasons = Array.isArray(place.qualityReasons) ? place.qualityReasons : [];
   return [
@@ -7520,12 +7629,13 @@ function placeImageThumbs(item) {
 }
 
 async function renderPlaces(force) {
-  const [catalog, reviews, submissions, templates, contributionData] = await Promise.all([
+  const [catalog, reviews, submissions, templates, contributionData, placeRewards] = await Promise.all([
     load('places', '/admin/places', force),
     load('placeReviews', '/admin/places/reviews', force),
     load('placeSubmissions', '/admin/places/submissions', force),
     load('placeModerationTemplates', '/admin/places/moderation-templates', force),
     load('placeContributions', '/admin/places/contributions', force),
+    load('placeRewards', '/admin/places/rewards', force),
   ]);
   const places = Array.isArray(catalog) ? catalog : catalog.places || [];
   const placeSummary = Array.isArray(catalog) ? {} : catalog.summary || {};
@@ -7533,6 +7643,8 @@ async function renderPlaces(force) {
   const contributionLeaderboard = contributionData?.leaderboard || [];
   const contributionRewardPolicy = contributionData?.rewardPolicy || {};
   const contributionSummary = contributionData?.summary || {};
+  const canModeratePlaces = adminCan('place.moderate');
+  const canSettlePlaceRewards = adminCan('place.reward.settle');
   const signedContributionPoints = (value) => {
     const points = Number(value || 0);
     return `${points > 0 ? '+' : ''}${numberText(points)}`;
@@ -7558,12 +7670,12 @@ async function renderPlaces(force) {
         ['质量', (row) => `${placeQualityPill(row)}${placeQualityEvidence(row)}`],
         ['重复候选', (row) => placeDuplicateSummary(row)],
         ['来源', (row) => `<div>${escapeHtml(row.source || '-')} · ${escapeHtml(row.category || '-')}</div><div class="cell-sub">${escapeHtml(row.petFriendlyStatus || 'unknown')} · 贡献者 ${numberText(row.contributorCount || 0)}</div><div class="cell-sub">${escapeHtml((row.tags || []).slice(0, 4).join(' / ') || '-')}</div>`],
-        ['操作', (row) => `
+        ['操作', (row) => canModeratePlaces ? `
           <div class="actions">
             <button class="small-button" data-action="place-edit" data-id="${escapeHtml(row.id)}">编辑</button>
             <button class="small-button ${row.duplicateCandidateCount ? 'danger' : 'ghost'}" data-action="place-merge" data-id="${escapeHtml(row.id)}">合并</button>
           </div>
-        `],
+        ` : '<span class="cell-sub">只读</span>'],
       ], '暂无地点目录')}
     </div>
     <div class="card">
@@ -7572,9 +7684,7 @@ async function renderPlaces(force) {
           <h2>审核原因模板</h2>
           <div class="section-sub">通过或驳回地点点评、新增地点时可套用，最终原因仍可编辑并同步给用户通知</div>
         </div>
-        <div class="actions">
-          <button class="small-button" data-action="place-template-create">新增模板</button>
-        </div>
+        ${canModeratePlaces ? '<div class="actions"><button class="small-button" data-action="place-template-create">新增模板</button></div>' : ''}
         ${help('模板用于统一运营口径；真正写入审核记录、通知和审计的是最终提交的审核原因。')}
       </div>
       <div class="template-summary-row">
@@ -7590,9 +7700,7 @@ async function renderPlaces(force) {
           <h2>地点贡献者</h2>
           <div class="section-sub">新增地点通过、关联已有地点或运营纠偏后自动重算；移动端“地点共建者”身份只读取有效记录</div>
         </div>
-        <div class="actions">
-          <button class="small-button" data-action="place-contribution-adjust">手动调整</button>
-        </div>
+        ${canSettlePlaceRewards ? '<div class="actions"><button class="small-button" data-action="place-contribution-adjust">手动调整</button></div>' : ''}
         ${help('手动调整用于误审、刷分、线下活动补分或客服纠偏；撤销会保留审计记录但不再计入移动端地点共建身份。当前贡献分仍只是运营积分账本，不等同现金、余额或可提现资产。')}
       </div>
       <div class="template-summary-row">
@@ -7606,6 +7714,7 @@ async function renderPlaces(force) {
       ${renderPlaceContributionLeaderboard(contributionLeaderboard, contributionRewardPolicy)}
       ${renderPlaceContributions(contributions)}
     </div>
+    ${renderPlaceRewardProgram(placeRewards)}
     <div class="card">
       <div class="section-head">
         <div>
@@ -7619,12 +7728,12 @@ async function renderPlaces(force) {
         ['用户', (r) => `<div>${escapeHtml(r.ownerName)}</div><div class="cell-sub">${shortPhone(r.ownerPhone)}</div>`],
         ['状态', (r) => `${statusPill(r.status)}<div class="cell-sub">${r.resultNotifiedAt ? '已通知：' + formatTime(r.resultNotifiedAt) : '未通知用户'}</div>${placeModerationTemplateMeta(r)}`],
         ['时间', (r) => formatTime(r.createdAt)],
-        ['操作', (r) => `
+        ['操作', (r) => canModeratePlaces ? `
           <div class="actions">
             <button class="small-button" data-action="review-approve" data-id="${r.id}">通过</button>
             <button class="small-button danger" data-action="review-reject" data-id="${r.id}">驳回</button>
           </div>
-        `],
+        ` : '<span class="cell-sub">只读</span>'],
       ])}
     </div>
     <div class="card">
@@ -7642,13 +7751,13 @@ async function renderPlaces(force) {
         ['用户', (s) => `<div>${escapeHtml(s.ownerName)}</div><div class="cell-sub">${shortPhone(s.ownerPhone)}</div>`],
         ['状态', (s) => `${statusPill(s.status)}<div class="cell-sub">${s.resultNotifiedAt ? '已通知：' + formatTime(s.resultNotifiedAt) : '未通知用户'}</div>${s.contributionId ? `<div class="cell-sub">贡献：${escapeHtml(s.contributionActionLabel || '-')} +${numberText(s.contributionPoints || 0)}</div>` : ''}${placeModerationTemplateMeta(s)}`],
         ['时间', (s) => formatTime(s.createdAt)],
-        ['操作', (s) => `
+        ['操作', (s) => canModeratePlaces ? `
           <div class="actions">
             <button class="small-button" data-action="submission-approve" data-id="${s.id}">通过</button>
             <button class="small-button ghost" data-action="submission-link-existing" data-id="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name || '')}" data-default-target-id="${escapeHtml((s.duplicateCandidates || [])[0]?.id || '')}">关联已有</button>
             <button class="small-button danger" data-action="submission-reject" data-id="${s.id}">驳回</button>
           </div>
-        `],
+        ` : '<span class="cell-sub">只读</span>'],
       ])}
     </div>
   `;
@@ -9215,17 +9324,20 @@ async function renderConfig(force) {
             <h2>地点贡献身份</h2>
             <div class="section-sub">控制用户在移动端“我的”页是否展示地点共建者徽章、我的排名和荣誉候选提示</div>
           </div>
-          ${help('地点审核通过后会记录贡献分。这里控制是否把“自己的贡献身份”、匿名排行榜和荣誉策略公开给用户；当前只做社区荣誉，不做现金、余额或实物兑换。')}
+          ${help('地点审核通过后会记录贡献分。活动结算会按冻结周期榜单生成领取资格；用户领取后进入履约队列。结算、地点审核和奖励履约使用独立权限。')}
         </div>
         <div class="switch-panel">
           ${featureCheckbox('cfgPlaceContributionBadgesEnabled', '展示地点共建者徽章', Boolean(placesConfig.contributionBadgesEnabled))}
           ${featureCheckbox('cfgPlaceContributionLeaderboardEnabled', '开放匿名贡献排行榜', Boolean(placesConfig.contributionLeaderboardEnabled))}
           ${featureCheckbox('cfgPlaceContributionRewardEnabled', '开放荣誉候选提示', Boolean(placeContributionRewardPolicy.enabled))}
+          ${featureCheckbox('cfgPlaceContributionSettlementEnabled', '允许活动周期结算', Boolean(placeContributionRewardPolicy.settlementEnabled))}
+          ${featureCheckbox('cfgPlaceContributionRedemptionEnabled', '允许用户领取奖励', Boolean(placeContributionRewardPolicy.redemptionEnabled))}
         </div>
         <div class="config-grid">
           <label>展示最低贡献分<input id="cfgPlaceContributionBadgeMinPoints" type="number" min="1" max="1000" value="${Number.isFinite(Number(placesConfig.contributionBadgeMinPoints)) ? placesConfig.contributionBadgeMinPoints : 1}" /></label>
           <label>榜单返回人数<input id="cfgPlaceContributionLeaderboardLimit" type="number" min="3" max="50" value="${Number.isFinite(Number(placesConfig.contributionLeaderboardLimit)) ? placesConfig.contributionLeaderboardLimit : 10}" /></label>
           <label>荣誉 Top N<input id="cfgPlaceContributionRewardTopN" type="number" min="1" max="20" value="${Number.isFinite(Number(placeContributionRewardPolicy.topN)) ? placeContributionRewardPolicy.topN : 3}" /></label>
+          <label>结算最低贡献分<input id="cfgPlaceContributionRewardMinimumPoints" type="number" min="1" max="100000" value="${Number.isFinite(Number(placeContributionRewardPolicy.minimumPoints)) ? placeContributionRewardPolicy.minimumPoints : 1}" /></label>
           <label>荣誉周期
             <select id="cfgPlaceContributionRewardCycle">
               ${configProviderOption(placeContributionRewardPolicy.cycle || 'monthly', 'monthly', '每月')}
@@ -9233,6 +9345,15 @@ async function renderConfig(force) {
               ${configProviderOption(placeContributionRewardPolicy.cycle || 'monthly', 'seasonal', '每期活动')}
             </select>
           </label>
+          <label>奖励类型
+            <select id="cfgPlaceContributionRewardType">
+              ${configProviderOption(placeContributionRewardPolicy.rewardType || 'digital_badge', 'digital_badge', '数字徽章')}
+              ${configProviderOption(placeContributionRewardPolicy.rewardType || 'digital_badge', 'coupon', '兑换券')}
+              ${configProviderOption(placeContributionRewardPolicy.rewardType || 'digital_badge', 'physical', '实物权益')}
+            </select>
+          </label>
+          <label>领取有效期（天）<input id="cfgPlaceContributionRedemptionWindowDays" type="number" min="1" max="180" value="${Number.isFinite(Number(placeContributionRewardPolicy.redemptionWindowDays)) ? placeContributionRewardPolicy.redemptionWindowDays : 30}" /></label>
+          <label>履约 SLA（天）<input id="cfgPlaceContributionFulfillmentSlaDays" type="number" min="1" max="90" value="${Number.isFinite(Number(placeContributionRewardPolicy.fulfillmentSlaDays)) ? placeContributionRewardPolicy.fulfillmentSlaDays : 14}" /></label>
           <label>荣誉名称<input id="cfgPlaceContributionRewardLabel" maxlength="40" value="${escapeHtml(placeContributionRewardPolicy.rewardLabel || '地点共建荣誉')}" /></label>
           <label class="wide">荣誉说明<textarea id="cfgPlaceContributionRewardDescription" maxlength="160" placeholder="建议明确这是社区荣誉，不含现金、余额或实物兑换。">${escapeHtml(placeContributionRewardPolicy.description || '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。')}</textarea></label>
         </div>
@@ -10038,9 +10159,25 @@ async function saveConfig(mode = 'publish') {
   if (!Number.isInteger(placeContributionRewardTopN) || placeContributionRewardTopN < 1 || placeContributionRewardTopN > 20) {
     throw new Error('地点贡献荣誉 Top N 必须是 1-20 之间的整数');
   }
+  const placeContributionRewardMinimumPoints = Number($('cfgPlaceContributionRewardMinimumPoints').value);
+  if (!Number.isInteger(placeContributionRewardMinimumPoints) || placeContributionRewardMinimumPoints < 1 || placeContributionRewardMinimumPoints > 100000) {
+    throw new Error('地点活动结算最低贡献分必须是 1-100000 之间的整数');
+  }
+  const placeContributionRedemptionWindowDays = Number($('cfgPlaceContributionRedemptionWindowDays').value);
+  if (!Number.isInteger(placeContributionRedemptionWindowDays) || placeContributionRedemptionWindowDays < 1 || placeContributionRedemptionWindowDays > 180) {
+    throw new Error('地点活动奖励领取有效期必须是 1-180 天之间的整数');
+  }
+  const placeContributionFulfillmentSlaDays = Number($('cfgPlaceContributionFulfillmentSlaDays').value);
+  if (!Number.isInteger(placeContributionFulfillmentSlaDays) || placeContributionFulfillmentSlaDays < 1 || placeContributionFulfillmentSlaDays > 90) {
+    throw new Error('地点活动奖励履约 SLA 必须是 1-90 天之间的整数');
+  }
   const placeContributionRewardCycle = $('cfgPlaceContributionRewardCycle').value;
   if (!['monthly', 'quarterly', 'seasonal'].includes(placeContributionRewardCycle)) {
     throw new Error('地点贡献荣誉周期无效');
+  }
+  const placeContributionRewardType = $('cfgPlaceContributionRewardType').value;
+  if (!['coupon', 'digital_badge', 'physical'].includes(placeContributionRewardType)) {
+    throw new Error('地点活动奖励类型无效');
   }
   const placeContributionRewardLabel = $('cfgPlaceContributionRewardLabel').value.trim();
   if (!placeContributionRewardLabel) throw new Error('地点贡献荣誉名称不能为空');
@@ -10242,7 +10379,13 @@ async function saveConfig(mode = 'publish') {
         cycle: placeContributionRewardCycle,
         description: placeContributionRewardDescription,
         enabled: $('cfgPlaceContributionRewardEnabled').checked,
+        fulfillmentSlaDays: placeContributionFulfillmentSlaDays,
+        minimumPoints: placeContributionRewardMinimumPoints,
+        redemptionEnabled: $('cfgPlaceContributionRedemptionEnabled').checked,
+        redemptionWindowDays: placeContributionRedemptionWindowDays,
         rewardLabel: placeContributionRewardLabel,
+        rewardType: placeContributionRewardType,
+        settlementEnabled: $('cfgPlaceContributionSettlementEnabled').checked,
         topN: placeContributionRewardTopN,
       },
       publicReviews: {

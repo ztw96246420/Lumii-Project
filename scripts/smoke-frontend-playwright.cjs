@@ -694,10 +694,13 @@ async function main() {
     }
     await screenshot(page, 'smoke-frontend-00-profile-rejected.png');
 
-    await page.goto(`${baseUrl}/?route=profile&mockPlaceContributions=1`, { timeout: 60_000, waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/?route=profile&mockPlaceContributions=1&mockPlaceRewards=1`, { timeout: 60_000, waitUntil: 'networkidle' });
     await waitExactText(page, '我的');
     await clickExactText(page, '地点贡献');
     await waitExactText(page, '地点贡献记录');
+    await page.getByLabel('地点活动奖励-mock-place-reward-available', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByLabel('领取地点活动奖励-mock-place-reward-available', { exact: true }).click();
+    await waitExactText(page, '待发放');
     await page.getByLabel('地点提交-mock-place-submission-approved').waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('地点提交-mock-place-submission-pending').waitFor({ state: 'visible', timeout: 30_000 });
     await page.getByLabel('地点提交-mock-place-submission-rejected').waitFor({ state: 'visible', timeout: 30_000 });

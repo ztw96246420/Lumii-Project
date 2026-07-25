@@ -180,6 +180,11 @@ async function main() {
     await page.locator('text=配置发布').first().waitFor({ timeout: 30_000 });
     await page.locator('button[data-action="route"][data-route="config"]').first().click();
     await page.locator('#pageTitle').filter({ hasText: '配置中心' }).waitFor({ timeout: 30_000 });
+    await page.locator('#cfgPlaceContributionSettlementEnabled').waitFor({ state: 'attached', timeout: 30_000 });
+    await page.locator('#cfgPlaceContributionRedemptionEnabled').waitFor({ state: 'attached', timeout: 30_000 });
+    await page.locator('#nav button[data-route="places"]').click();
+    await page.getByText('地点活动奖励', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByText('结算上期活动', { exact: true }).waitFor({ timeout: 30_000 });
 
     console.log('admin dashboard page smoke passed');
   } finally {

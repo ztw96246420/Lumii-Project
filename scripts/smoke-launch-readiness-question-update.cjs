@@ -152,7 +152,10 @@ async function main() {
     assert.match(clearDataQuestion.currentPolicy, /双人会签/);
     const placeRewardQuestion = rowById(initial.data.questions, 'q-place-reward');
     assert.equal(placeRewardQuestion.status, 'ready');
-    assert.match(placeRewardQuestion.currentPolicy, /不承诺现金、实物或兑换权益/);
+    assert.match(placeRewardQuestion.currentPolicy, /活动奖励默认关闭/);
+    assert.match(placeRewardQuestion.currentPolicy, /已结束周期冻结 Top N 和最低分/);
+    assert.match(placeRewardQuestion.currentPolicy, /一次性领取资格/);
+    assert.match(placeRewardQuestion.currentPolicy, /独立履约角色/);
 
     const updated = await request('/admin/launch/readiness/questions/q-domain', {
       body: {

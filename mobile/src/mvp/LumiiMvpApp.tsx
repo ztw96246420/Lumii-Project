@@ -152,6 +152,8 @@ import type {
   PushRegistrationDiagnostic,
   PushRegistrationDiagnosticInput,
   Place,
+  PlaceRewardClaim,
+  PlaceRewardProgram,
   PlaceReview,
   PlaceSubmission,
   ReportAppealTarget,
@@ -289,7 +291,13 @@ const fallbackRemoteConfig: AppRemoteConfig = {
       cycle: 'monthly',
       description: '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。',
       enabled: false,
+      fulfillmentSlaDays: 14,
+      minimumPoints: 1,
+      redemptionEnabled: false,
+      redemptionWindowDays: 30,
       rewardLabel: '地点共建荣誉',
+      rewardType: 'digital_badge',
+      settlementEnabled: false,
       topN: 3,
     },
     publicReviews: {
@@ -425,7 +433,7 @@ function notificationCategoryFor(item: NotificationItem): NotificationCategory {
 }
 
 function isNotificationKind(value: unknown): value is NotificationKind {
-  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'medical_alert' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_submission' || value === 'support_reply' || value === 'system' || value === 'vaccine_done' || value === 'vaccine_reminder' || value === 'walk_invite';
+  return value === 'conversation_message' || value === 'greeting_accepted' || value === 'greeting_request' || value === 'health_reminder' || value === 'medical_alert' || value === 'pet_circle_comment' || value === 'pet_circle_greeting' || value === 'pet_circle_like' || value === 'place_review' || value === 'place_reward' || value === 'place_submission' || value === 'support_reply' || value === 'system' || value === 'vaccine_done' || value === 'vaccine_reminder' || value === 'walk_invite';
 }
 
 function notificationKindFor(item: NotificationItem): NotificationKind {
@@ -438,6 +446,7 @@ function notificationKindFor(item: NotificationItem): NotificationKind {
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
+  if (/place-reward/.test(id)) return 'place_reward';
   if (/place-submission/.test(id)) return 'place_submission';
   if (/(support|ticket|feedback|customer-service)/.test(id)) return 'support_reply';
   if (/review/.test(id)) return 'place_review';
@@ -2772,6 +2781,8 @@ export default function LumiiMvpApp() {
   const [placeContributionTab, setPlaceContributionTab] = useState<PlaceContributionTab>('submissions');
   const [placeContributionRecordsLoading, setPlaceContributionRecordsLoading] = useState(false);
   const [placeContributionRecordsError, setPlaceContributionRecordsError] = useState('');
+  const [placeRewardProgram, setPlaceRewardProgram] = useState<PlaceRewardProgram | null>(null);
+  const [placeRewardRedeemingIds, setPlaceRewardRedeemingIds] = useState<string[]>([]);
   const [publicPlaceReviewsByPlaceId, setPublicPlaceReviewsByPlaceId] = useState<Record<string, PlaceReview[]>>({});
   const [publicPlaceReviewsLoadingId, setPublicPlaceReviewsLoadingId] = useState('');
   const [expandedPublicPlaceReviewPlaceIds, setExpandedPublicPlaceReviewPlaceIds] = useState<string[]>([]);
@@ -5479,9 +5490,10 @@ export default function LumiiMvpApp() {
     if (!options.silent) setPlaceContributionRecordsLoading(true);
     setPlaceContributionRecordsError('');
     try {
-      const [reviewsResult, submissionsResult] = await Promise.all([
+      const [reviewsResult, submissionsResult, rewardsResult] = await Promise.all([
         placesPreviewApi.listMyReviews(),
         placesPreviewApi.listMySubmissions(),
+        placesPreviewApi.listMyRewards(),
       ]);
       if (sessionTokenRef.current !== requestSessionToken) return false;
       if (reviewsResult.data) {
@@ -5489,14 +5501,47 @@ export default function LumiiMvpApp() {
         setPlaceReviewsByPlaceId(indexPlaceReviewsByPlaceId(reviewsResult.data));
       }
       if (submissionsResult.data) setMyPlaceSubmissions(submissionsResult.data);
-      const errorMessage = reviewsResult.error?.message || submissionsResult.error?.message || '';
+      if (rewardsResult.data) setPlaceRewardProgram(rewardsResult.data);
+      const errorMessage = reviewsResult.error?.message || submissionsResult.error?.message || rewardsResult.error?.message || '';
       setPlaceContributionRecordsError(errorMessage);
-      return Boolean(reviewsResult.data || submissionsResult.data);
+      return Boolean(reviewsResult.data || submissionsResult.data || rewardsResult.data);
     } catch {
       if (sessionTokenRef.current === requestSessionToken) setPlaceContributionRecordsError('地点贡献记录加载失败');
       return false;
     } finally {
       if (sessionTokenRef.current === requestSessionToken) setPlaceContributionRecordsLoading(false);
+    }
+  }
+
+  async function redeemPlaceReward(claim: PlaceRewardClaim) {
+    if (claim.status !== 'available' || placeRewardRedeemingIds.includes(claim.id)) return;
+    const confirmed = await confirmAction(
+      `领取${claim.rewardLabel || '地点共建奖励'}？`,
+      '领取后会进入运营发放队列，可在本页查看履约状态。奖励不可转让，请勿向任何人提供短信验证码。',
+      '确认领取',
+    );
+    if (!confirmed) return;
+    const requestSessionToken = sessionTokenRef.current;
+    setPlaceRewardRedeemingIds((ids) => [...ids, claim.id]);
+    try {
+      const result = await placesPreviewApi.redeemReward(claim.id);
+      if (sessionTokenRef.current !== requestSessionToken) return;
+      if (result.data?.claim) {
+        setPlaceRewardProgram((current) => current ? {
+          ...current,
+          claims: current.claims.map((item) => item.id === claim.id ? result.data!.claim : item),
+          summary: {
+            ...current.summary,
+            available: Math.max(0, Number(current.summary.available || 0) - 1),
+            redeemed: Number(current.summary.redeemed || 0) + 1,
+          },
+        } : current);
+        showToast('奖励已领取', { subtitle: '已进入运营发放队列，可在本页查看进度', tone: 'success', variant: 'surface' });
+        return;
+      }
+      showToast(result.error?.message ?? '奖励领取失败，请稍后重试', { tone: 'error', variant: 'surface' });
+    } finally {
+      if (sessionTokenRef.current === requestSessionToken) setPlaceRewardRedeemingIds((ids) => ids.filter((id) => id !== claim.id));
     }
   }
 
@@ -5687,6 +5732,11 @@ export default function LumiiMvpApp() {
     }
     if (conversationId && (kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'walk_invite')) {
       await openConversationFromNotification(conversationId, item);
+      return;
+    }
+    if (kind === 'place_reward') {
+      openPlaceContributionRecords('submissions');
+      void loadPlaceContributionRecords({ silent: true });
       return;
     }
     if (kind === 'place_review' && item.placeId) {
@@ -10104,6 +10154,8 @@ export default function LumiiMvpApp() {
     setPlaceContributionTab('submissions');
     setPlaceContributionRecordsLoading(false);
     setPlaceContributionRecordsError('');
+    setPlaceRewardProgram(null);
+    setPlaceRewardRedeemingIds([]);
     setPublicPlaceReviewsByPlaceId({});
     setPublicPlaceReviewsLoadingId('');
     setExpandedPublicPlaceReviewPlaceIds([]);
@@ -16172,11 +16224,11 @@ export default function LumiiMvpApp() {
           rightLabel,
         };
       }
-      if (kind === 'place_review' || kind === 'place_submission') {
+      if (kind === 'place_review' || kind === 'place_reward' || kind === 'place_submission') {
         return {
           icon: <MapPin color={palette.teal} size={15} strokeWidth={2.5} />,
           iconStyle: styles.notificationIconSystemMake,
-          rightLabel: kind === 'place_review' ? '查看地点' : '查看进度',
+          rightLabel: kind === 'place_review' ? '查看地点' : kind === 'place_reward' ? '查看奖励' : '查看进度',
         };
       }
       if (kind === 'support_reply') {
@@ -16296,6 +16348,7 @@ export default function LumiiMvpApp() {
     const contributionPoints = Math.max(Number(contributionSummary?.points || 0), recordedContributionPoints);
     const contributionTotal = Math.max(Number(contributionSummary?.total || 0), recordedContributionTotal);
     const contributionLevel = contributionSummary?.level?.label || (contributionTotal ? '地点新星' : '待点亮');
+    const rewardClaims = placeRewardProgram?.claims || [];
     const reviews = [...myPlaceReviews].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
     const submissions = [...myPlaceSubmissions].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
     const activeItems = placeContributionTab === 'submissions' ? submissions : reviews;
@@ -16354,6 +16407,50 @@ export default function LumiiMvpApp() {
               <Text style={styles.placeContributionHeroStatLabelMake}>贡献分</Text>
             </View>
           </View>
+
+          {rewardClaims.length ? (
+            <View style={styles.placeRewardSectionMake}>
+              <View style={styles.placeRewardSectionHeaderMake}>
+                <View style={styles.flex}>
+                  <Text style={styles.placeRewardSectionTitleMake}>活动奖励</Text>
+                  <Text style={styles.placeRewardSectionBodyMake}>周期榜单结算后生成；领取、发放和取消状态均会保留。</Text>
+                </View>
+                <StatusPill tone={placeRewardProgram?.summary.available ? 'warning' : 'neutral'}>{rewardClaims.length} 项</StatusPill>
+              </View>
+              {rewardClaims.slice(0, 5).map((claim) => {
+                const redeeming = placeRewardRedeemingIds.includes(claim.id);
+                const statusTone = claim.status === 'fulfilled' ? 'success' : claim.status === 'available' || claim.status === 'redeemed' ? 'warning' : 'neutral';
+                const periodText = `${String(claim.periodStart || '').slice(0, 10)} 至 ${String(claim.periodEnd || '').slice(0, 10)}`;
+                return (
+                  <View accessibilityLabel={`地点活动奖励-${claim.id}`} key={claim.id} style={styles.placeRewardCardMake}>
+                    <View style={styles.placeRewardCardHeaderMake}>
+                      <View style={styles.placeRewardIconMake}><Sparkles color={palette.orange} size={17} strokeWidth={2.5} /></View>
+                      <View style={styles.flex}>
+                        <Text numberOfLines={1} style={styles.placeRewardTitleMake}>{claim.rewardLabel || '地点共建奖励'}</Text>
+                        <Text style={styles.placeRewardMetaMake}>{periodText} · 第 {claim.rank} 名 · {claim.points} 分</Text>
+                      </View>
+                      <StatusPill tone={statusTone}>{claim.statusLabel || (claim.status === 'available' ? '待领取' : claim.status === 'redeemed' ? '待发放' : claim.status === 'fulfilled' ? '已发放' : claim.status === 'expired' ? '已过期' : '已取消')}</StatusPill>
+                    </View>
+                    {claim.rewardDescription ? <Text style={styles.placeRewardDescriptionMake}>{claim.rewardDescription}</Text> : null}
+                    {claim.status === 'available' ? (
+                      <Pressable
+                        accessibilityLabel={`领取地点活动奖励-${claim.id}`}
+                        accessibilityRole="button"
+                        disabled={redeeming}
+                        onPress={() => void redeemPlaceReward(claim)}
+                        style={[styles.placeRewardRedeemButtonMake, redeeming && styles.mapSearchActionDisabled, webPressableReset]}
+                      >
+                        {redeeming ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.placeRewardRedeemTextMake}>确认领取</Text>}
+                      </Pressable>
+                    ) : null}
+                    {claim.status === 'redeemed' ? <Text style={styles.placeRewardProgressMake}>已于 {formatTimestampDisplay(claim.redeemedAt)} 领取，预计在 {String(claim.fulfillmentSlaAt || '').slice(0, 10)} 前完成发放。</Text> : null}
+                    {claim.status === 'fulfilled' ? <Text style={styles.placeRewardProgressMake}>发放凭证：{claim.fulfillmentReference || '已由运营确认发放'}</Text> : null}
+                    {claim.status === 'canceled' && claim.canceledReason ? <Text style={styles.placeRewardProgressMake}>取消原因：{claim.canceledReason}</Text> : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
 
           <View accessibilityRole="tablist" style={styles.placeContributionTabsMake}>
             <Pressable
@@ -21575,6 +21672,19 @@ const styles = StyleSheet.create({
   placeWriteReviewPanelMake: { backgroundColor: '#fff', borderColor: palette.border, borderRadius: 18, borderWidth: 1, marginTop: 16, paddingHorizontal: 14, paddingVertical: 14, shadowColor: '#50371e', shadowOffset: { height: 10, width: 0 }, shadowOpacity: 0.06, shadowRadius: 20 },
   placeWriteReviewTextMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 12.5, lineHeight: 19, marginTop: 8 },
   placeWriteReviewTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '700' },
+  placeRewardCardHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 9 },
+  placeRewardCardMake: { backgroundColor: '#fff', borderColor: '#F0D7C3', borderRadius: 14, borderWidth: 1, gap: 9, padding: 12 },
+  placeRewardDescriptionMake: { color: 'rgba(27,28,25,0.76)', fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '500', lineHeight: 17 },
+  placeRewardIconMake: { alignItems: 'center', backgroundColor: '#FFF0E6', borderRadius: 15, height: 30, justifyContent: 'center', width: 30 },
+  placeRewardMetaMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 10.5, fontWeight: '600', lineHeight: 15, marginTop: 1 },
+  placeRewardProgressMake: { backgroundColor: palette.pale, borderRadius: 9, color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '600', lineHeight: 17, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 7 },
+  placeRewardRedeemButtonMake: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: palette.orange, borderRadius: 10, justifyContent: 'center', minHeight: 36, minWidth: 104, paddingHorizontal: 14 },
+  placeRewardRedeemTextMake: { color: '#fff', fontFamily: appFontFamily, fontSize: 12, fontWeight: '800' },
+  placeRewardSectionBodyMake: { color: palette.muted, fontFamily: appFontFamily, fontSize: 11, fontWeight: '500', lineHeight: 16, marginTop: 2 },
+  placeRewardSectionHeaderMake: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  placeRewardSectionMake: { backgroundColor: '#FFF9F4', borderColor: '#F2DCCB', borderRadius: 16, borderWidth: 1, gap: 10, padding: 12 },
+  placeRewardSectionTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 14, fontWeight: '800', lineHeight: 19 },
+  placeRewardTitleMake: { color: palette.ink, fontFamily: appFontFamily, fontSize: 13, fontWeight: '800', lineHeight: 18 },
   placeContributionActionMake: { alignItems: 'center', flexDirection: 'row', gap: 2, minHeight: 30, paddingLeft: 8 },
   placeContributionActionTextMake: { color: palette.orange, fontFamily: appFontFamily, fontSize: 11.5, fontWeight: '800', lineHeight: 16 },
   placeContributionErrorMake: { alignItems: 'center', backgroundColor: '#FFF7E8', borderColor: '#F2D9A7', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },

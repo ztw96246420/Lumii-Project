@@ -44,6 +44,8 @@ import type {
   PetProfilePatch,
   PetTaxonomy,
   Place,
+  PlaceRewardClaim,
+  PlaceRewardProgram,
   PlaceReview,
   PlaceSubmission,
   PermissionStateMap,
@@ -166,7 +168,13 @@ const mockAppRemoteConfig: AppRemoteConfig = {
       cycle: 'monthly',
       description: '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。',
       enabled: false,
+      fulfillmentSlaDays: 14,
+      minimumPoints: 1,
+      redemptionEnabled: false,
+      redemptionWindowDays: 30,
       rewardLabel: '地点共建荣誉',
+      rewardType: 'digital_badge',
+      settlementEnabled: false,
       topN: 3,
     },
     publicReviews: {
@@ -1765,6 +1773,7 @@ let placeReviews: PlaceReview[] = [];
 let placeReviewReportedIds: string[] = [];
 let placeReportedIds: string[] = [];
 let placeSubmissions: PlaceSubmission[] = [];
+let placeRewardClaims: PlaceRewardClaim[] = [];
 
 function ensureMockPlaceContributionFixtures() {
   if (getMockWebPreviewParam('mockPlaceContributions') !== '1') return;
@@ -1835,6 +1844,24 @@ function ensureMockPlaceContributionFixtures() {
       },
       ...placeReviews,
     ];
+  }
+  if (getMockWebPreviewParam('mockPlaceRewards') === '1' && !placeRewardClaims.some((item) => item.id === 'mock-place-reward-available')) {
+    placeRewardClaims = [{
+      createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 13 * 24 * 60 * 60 * 1000).toISOString(),
+      id: 'mock-place-reward-available',
+      periodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      periodStart: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString(),
+      points: 30,
+      rank: 1,
+      rewardDescription: '完成领取后由运营在 7 个工作日内发放。',
+      rewardLabel: '地点共建礼包',
+      rewardType: 'coupon',
+      rewardTypeLabel: '兑换券',
+      settlementId: 'mock-place-reward-settlement',
+      status: 'available',
+      statusLabel: '待领取',
+    }];
   }
 }
 
@@ -2032,7 +2059,7 @@ function inferMockNotificationCategory(notification: Pick<NotificationItem, 'id'
 }
 
 function normalizeMockNotificationKind(kind: unknown): NotificationKind | '' {
-  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'medical_alert' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'place_review' || kind === 'place_submission' || kind === 'system' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'walk_invite' ? kind : '';
+  return kind === 'conversation_message' || kind === 'greeting_accepted' || kind === 'greeting_request' || kind === 'health_reminder' || kind === 'medical_alert' || kind === 'pet_circle_comment' || kind === 'pet_circle_greeting' || kind === 'pet_circle_like' || kind === 'place_review' || kind === 'place_reward' || kind === 'place_submission' || kind === 'support_reply' || kind === 'system' || kind === 'vaccine_done' || kind === 'vaccine_reminder' || kind === 'walk_invite' ? kind : '';
 }
 
 function isStaleMockNearbyLocation(location?: NearbyLocationHint | null) {
@@ -2069,6 +2096,7 @@ function inferMockNotificationKind(notification: NotificationItem): Notification
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
+  if (/place-reward/.test(id)) return 'place_reward';
   if (/place-submission/.test(id)) return 'place_submission';
   if (/review/.test(id)) return 'place_review';
   if (/medical/.test(id)) return 'medical_alert';
@@ -4161,6 +4189,50 @@ export const mockApi = {
       await wait(120);
       ensureMockPlaceContributionFixtures();
       return success(placeSubmissions);
+    },
+
+    async listMyRewards(): Promise<ApiResult<PlaceRewardProgram>> {
+      await wait(120);
+      ensureMockPlaceContributionFixtures();
+      const previewEnabled = getMockWebPreviewParam('mockPlaceRewards') === '1';
+      const policy = {
+        ...(mockAppRemoteConfig.places?.contributionRewardPolicy || {}),
+        ...(previewEnabled ? {
+          enabled: true,
+          redemptionEnabled: true,
+          rewardLabel: '地点共建礼包',
+          rewardType: 'coupon' as const,
+          settlementEnabled: true,
+        } : {}),
+      };
+      return success({
+        claims: placeRewardClaims,
+        policy,
+        summary: {
+          available: placeRewardClaims.filter((item) => item.status === 'available').length,
+          expired: placeRewardClaims.filter((item) => item.status === 'expired').length,
+          fulfilled: placeRewardClaims.filter((item) => item.status === 'fulfilled').length,
+          redeemed: placeRewardClaims.filter((item) => item.status === 'redeemed').length,
+          total: placeRewardClaims.length,
+        },
+      });
+    },
+
+    async redeemReward(claimId: string): Promise<ApiResult<{ claim: PlaceRewardClaim }>> {
+      await wait(160);
+      const claim = placeRewardClaims.find((item) => item.id === claimId);
+      if (!claim) return error<{ claim: PlaceRewardClaim }>('奖励记录不存在', false, undefined, 'PLACE_REWARD_NOT_FOUND');
+      if (claim.status !== 'available') return error<{ claim: PlaceRewardClaim }>('该奖励当前不可领取', false, undefined, 'PLACE_REWARD_REDEEM_INVALID');
+      const redeemedAt = new Date().toISOString();
+      const updated: PlaceRewardClaim = {
+        ...claim,
+        fulfillmentSlaAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        redeemedAt,
+        status: 'redeemed',
+        statusLabel: '待发放',
+      };
+      placeRewardClaims = placeRewardClaims.map((item) => item.id === claimId ? updated : item);
+      return success({ claim: updated });
     },
 
     async createReview(placeId: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceReview>> {

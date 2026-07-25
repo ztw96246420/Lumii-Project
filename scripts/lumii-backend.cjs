@@ -1003,7 +1003,13 @@ function defaultOpsConfig() {
         cycle: 'monthly',
         description: '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。',
         enabled: false,
+        fulfillmentSlaDays: 14,
+        minimumPoints: 1,
+        redemptionEnabled: false,
+        redemptionWindowDays: 30,
         rewardLabel: '地点共建荣誉',
+        rewardType: 'digital_badge',
+        settlementEnabled: false,
         topN: 3,
       },
       publicReviews: {
@@ -1141,6 +1147,8 @@ function createInitialState() {
     opsConfig: defaultOpsConfig(),
     placeModerationTemplates: [],
     placeContributions: [],
+    placeRewardClaims: [],
+    placeRewardSettlements: [],
     placeReviews: {},
     placeSubmissions: {},
     places: RUNTIME_ENV === 'production' ? [] : defaultPlaces,
@@ -1423,16 +1431,24 @@ function normalizePlacePublicReviewsOpsConfig(value, defaults = {}) {
 }
 
 const PLACE_CONTRIBUTION_REWARD_CYCLES = new Set(['monthly', 'quarterly', 'seasonal']);
+const PLACE_CONTRIBUTION_REWARD_TYPES = new Set(['coupon', 'digital_badge', 'physical']);
 
 function normalizePlaceContributionRewardPolicy(value, defaults = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const fallback = defaults && typeof defaults === 'object' ? defaults : {};
   const cycle = PLACE_CONTRIBUTION_REWARD_CYCLES.has(String(source.cycle || '')) ? String(source.cycle) : fallback.cycle || 'monthly';
+  const rewardType = PLACE_CONTRIBUTION_REWARD_TYPES.has(String(source.rewardType || '')) ? String(source.rewardType) : fallback.rewardType || 'digital_badge';
   return {
     cycle: PLACE_CONTRIBUTION_REWARD_CYCLES.has(cycle) ? cycle : 'monthly',
     description: String(source.description || fallback.description || '测试期仅用于社区荣誉展示，不含现金、余额或实物兑换。').replace(/\s+/g, ' ').trim().slice(0, 160),
     enabled: Boolean(source.enabled),
+    fulfillmentSlaDays: Math.floor(clampNumber(source.fulfillmentSlaDays, fallback.fulfillmentSlaDays || 14, 1, 90)),
+    minimumPoints: Math.floor(clampNumber(source.minimumPoints, fallback.minimumPoints || 1, 1, 100000)),
+    redemptionEnabled: Boolean(source.redemptionEnabled),
+    redemptionWindowDays: Math.floor(clampNumber(source.redemptionWindowDays, fallback.redemptionWindowDays || 30, 1, 180)),
     rewardLabel: String(source.rewardLabel || fallback.rewardLabel || '地点共建荣誉').replace(/\s+/g, ' ').trim().slice(0, 40),
+    rewardType: PLACE_CONTRIBUTION_REWARD_TYPES.has(rewardType) ? rewardType : 'digital_badge',
+    settlementEnabled: Boolean(source.settlementEnabled),
     topN: Math.floor(clampNumber(source.topN, fallback.topN || 3, 1, 20)),
   };
 }
@@ -3344,15 +3360,15 @@ function adminConfigLinkageItems(config = currentOpsConfig()) {
       userImpact: '可临时关闭地图地点相关能力。',
     },
     {
-      backendEvidence: '/me 返回 placeContributionSummary、我的排名和奖励资格；/app/config 返回地点贡献徽章、排行榜和奖励策略；/places/contributions/leaderboard 返回匿名化排行榜。',
-      backendEnforced: false,
+      backendEvidence: '/me 返回贡献身份；匿名榜单按配置开放；活动结算冻结周期排名与策略，生成一次性领取资格，用户领取后由独立履约权限发放或取消。',
+      backendEnforced: true,
       group: '发现/地图',
       key: 'places.contributionBadgesEnabled',
       label: '地点贡献身份展示',
       mobileApplied: true,
-      mobileEvidence: '移动端“我的”页读取 remoteConfig.places.contributionBadgesEnabled，命中门槛后展示地点共建者徽章、排名和下一等级差距。',
-      operatorNote: '排行榜接口默认关闭；开启后只返回匿名化共建者昵称，不返回手机号。奖励策略默认为社区荣誉展示，不等同现金、余额或实物兑换。',
-      userImpact: '让通过地点审核的用户看到自己的社区贡献身份、排名和荣誉激励口径，关闭后移动端不展示。',
+      mobileEvidence: '移动端“我的”页展示地点共建者徽章和排名；贡献记录页读取奖励资格，支持确认领取并持续展示待发放、已发放、取消和过期状态。',
+      operatorNote: '排行榜公开数据保持匿名；地点审核、活动结算和奖励履约拆分为 place.moderate、place.reward.settle、place.reward.fulfill 三类权限。',
+      userImpact: '让通过地点审核的用户看到贡献身份，并在活动结算后领取真实奖励、查询履约进度。',
     },
     {
       backendEvidence: 'publicPlaceReviewsForPlace 读取 currentOpsConfig().places.publicReviews，强制公开点评排序、只看有图和返回数量。',
@@ -4731,6 +4747,29 @@ function adminExportDataset(type) {
         exportColumn('voidedAt', '撤销时间', (row) => exportDateText(row.voidedAt)),
       ],
     },
+    place_reward_claims: {
+      description: '地点活动周期结算、用户领取和运营履约记录。',
+      label: '地点活动奖励',
+      rows: () => adminPlaceRewardProgram().claims,
+      columns: [
+        exportColumn('id', '奖励记录ID'),
+        exportColumn('settlementId', '结算ID'),
+        exportColumn('phone', '手机号'),
+        exportColumn('ownerName', '主人昵称'),
+        exportColumn('rewardLabel', '奖励名称'),
+        exportColumn('rewardTypeLabel', '奖励类型'),
+        exportColumn('rank', '周期排名'),
+        exportColumn('points', '周期贡献分'),
+        exportColumn('statusLabel', '状态'),
+        exportColumn('fulfillmentReference', '履约凭证'),
+        exportColumn('canceledReason', '取消原因'),
+        exportColumn('periodStart', '周期开始', (row) => exportDateText(row.periodStart)),
+        exportColumn('periodEnd', '周期结束', (row) => exportDateText(row.periodEnd)),
+        exportColumn('createdAt', '生成时间', (row) => exportDateText(row.createdAt)),
+        exportColumn('redeemedAt', '领取时间', (row) => exportDateText(row.redeemedAt)),
+        exportColumn('fulfilledAt', '发放时间', (row) => exportDateText(row.fulfilledAt)),
+      ],
+    },
     tickets: {
       description: '用户反馈工单、负责人、SLA 和回复数，用于客服处理复盘。',
       label: '工单',
@@ -4832,7 +4871,7 @@ function adminExportSensitiveColumns(columns = []) {
 function adminExportCatalog(filters = {}) {
   const normalizedFilters = normalizeAdminExportFilters(filters);
   const exportPolicy = normalizeExportOpsConfig(currentOpsConfig().exports, defaultOpsConfig().exports);
-  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_prompt_versions', 'pet_chat_messages', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'tickets', 'sanctions', 'app_events', 'audit_logs']
+  return ['users', 'pets', 'pet_calendar', 'social_relations', 'avatar_jobs', 'ai_media', 'avatar_feedback', 'ai_avatar_samples', 'ai_prompt_versions', 'pet_chat_messages', 'ai_provider_usage', 'config_linkage', 'moderation_tasks', 'moderation_samples', 'social_posts', 'social_comments', 'reports', 'places', 'place_reviews', 'place_submissions', 'place_contributions', 'place_reward_claims', 'tickets', 'sanctions', 'app_events', 'audit_logs']
     .map((type) => {
       const dataset = adminExportDataset(type);
       const rows = dataset ? dataset.rows() : [];
@@ -6115,6 +6154,8 @@ function loadState() {
       opsConfig: normalizeOpsConfig(loadedState.opsConfig || initialState.opsConfig),
       placeModerationTemplates: Array.isArray(loadedState.placeModerationTemplates) ? loadedState.placeModerationTemplates : initialState.placeModerationTemplates,
       placeContributions: Array.isArray(loadedState.placeContributions) ? loadedState.placeContributions : initialState.placeContributions,
+      placeRewardClaims: Array.isArray(loadedState.placeRewardClaims) ? loadedState.placeRewardClaims : initialState.placeRewardClaims,
+      placeRewardSettlements: Array.isArray(loadedState.placeRewardSettlements) ? loadedState.placeRewardSettlements : initialState.placeRewardSettlements,
       petAvatarDailyUsage: {
         ...initialState.petAvatarDailyUsage,
         ...(loadedState.petAvatarDailyUsage || {}),
@@ -12614,8 +12655,15 @@ function placeContributionLeaderboard(options = {}) {
   const maxLimit = Math.max(1, Math.floor(Number(options.maxLimit || 50)));
   const limit = Math.max(1, Math.min(maxLimit, Math.floor(Number(options.limit || 10))));
   const includePrivate = options.includePrivate === true;
+  const periodStartMs = Date.parse(String(options.periodStart || ''));
+  const periodEndMs = Date.parse(String(options.periodEnd || ''));
   const grouped = new Map();
-  ensurePlaceContributions().filter(isPlaceContributionActive).forEach((item) => {
+  ensurePlaceContributions().filter(isPlaceContributionActive).filter((item) => {
+    const createdMs = Date.parse(String(item.createdAt || ''));
+    if (Number.isFinite(periodStartMs) && (!Number.isFinite(createdMs) || createdMs < periodStartMs)) return false;
+    if (Number.isFinite(periodEndMs) && (!Number.isFinite(createdMs) || createdMs >= periodEndMs)) return false;
+    return true;
+  }).forEach((item) => {
     const phone = String(item.phone || '').trim();
     if (!phone) return;
     const current = grouped.get(phone) || {
@@ -12673,6 +12721,308 @@ function placeContributionRewardPolicySnapshot() {
     cycleLabel: { monthly: '每月', quarterly: '每季度', seasonal: '每期活动' }[policy.cycle] || '每月',
     leaderboardEnabled: Boolean(config.contributionLeaderboardEnabled),
     publicEnabled: Boolean(config.contributionLeaderboardEnabled && policy.enabled),
+  };
+}
+
+const PLACE_REWARD_CLAIM_STATUSES = new Set(['available', 'canceled', 'expired', 'fulfilled', 'redeemed']);
+
+function ensurePlaceRewardSettlements() {
+  state.placeRewardSettlements = Array.isArray(state.placeRewardSettlements) ? state.placeRewardSettlements : [];
+  return state.placeRewardSettlements;
+}
+
+function ensurePlaceRewardClaims() {
+  state.placeRewardClaims = Array.isArray(state.placeRewardClaims) ? state.placeRewardClaims : [];
+  return state.placeRewardClaims;
+}
+
+function normalizePlaceRewardClaimStatus(value) {
+  const status = String(value || 'available').trim();
+  return PLACE_REWARD_CLAIM_STATUSES.has(status) ? status : 'available';
+}
+
+function placeRewardTypeLabel(value) {
+  if (value === 'coupon') return '兑换券';
+  if (value === 'physical') return '实物权益';
+  return '数字徽章';
+}
+
+function placeRewardStatusLabel(value) {
+  return {
+    available: '待领取',
+    canceled: '已取消',
+    expired: '已过期',
+    fulfilled: '已发放',
+    redeemed: '待发放',
+  }[normalizePlaceRewardClaimStatus(value)] || '待领取';
+}
+
+function expirePlaceRewardClaims(now = Date.now()) {
+  let changed = false;
+  ensurePlaceRewardClaims().forEach((claim) => {
+    if (normalizePlaceRewardClaimStatus(claim.status) !== 'available') return;
+    const expiresMs = Date.parse(String(claim.expiresAt || ''));
+    if (!Number.isFinite(expiresMs) || expiresMs > now) return;
+    claim.status = 'expired';
+    claim.expiredAt = new Date(now).toISOString();
+    changed = true;
+  });
+  return changed;
+}
+
+function placeRewardDefaultClosedPeriod(policy = placeContributionRewardPolicySnapshot(), now = new Date()) {
+  const current = new Date(now);
+  let end;
+  let start;
+  if (policy.cycle === 'quarterly') {
+    const currentQuarterStartMonth = Math.floor(current.getUTCMonth() / 3) * 3;
+    end = new Date(Date.UTC(current.getUTCFullYear(), currentQuarterStartMonth, 1));
+    start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 3, 1));
+  } else if (policy.cycle === 'seasonal') {
+    end = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate()));
+    start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+  } else {
+    end = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 1));
+    start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 1, 1));
+  }
+  return { periodEnd: end.toISOString(), periodStart: start.toISOString() };
+}
+
+function normalizePlaceRewardPeriod(body = {}, policy = placeContributionRewardPolicySnapshot()) {
+  const fallback = placeRewardDefaultClosedPeriod(policy);
+  const periodStartMs = Date.parse(String(body.periodStart || fallback.periodStart));
+  const periodEndMs = Date.parse(String(body.periodEnd || fallback.periodEnd));
+  if (!Number.isFinite(periodStartMs) || !Number.isFinite(periodEndMs) || periodStartMs >= periodEndMs) {
+    return { error: '活动结算周期无效', statusCode: 400 };
+  }
+  if (periodEndMs > Date.now() + 5 * 60 * 1000) return { error: '不能结算尚未结束的活动周期', statusCode: 409 };
+  if (periodEndMs - periodStartMs > 370 * 24 * 60 * 60 * 1000) return { error: '单个活动结算周期不能超过 370 天', statusCode: 400 };
+  return {
+    periodEnd: new Date(periodEndMs).toISOString(),
+    periodStart: new Date(periodStartMs).toISOString(),
+  };
+}
+
+function placeRewardPeriodLeaderboard(period, policy, options = {}) {
+  return placeContributionLeaderboard({
+    includePrivate: options.includePrivate === true,
+    limit: Math.max(1, Number(policy.topN || 1)),
+    maxLimit: 20,
+    periodEnd: period.periodEnd,
+    periodStart: period.periodStart,
+  }).filter((row) => Number(row.points || 0) >= Number(policy.minimumPoints || 1));
+}
+
+function publicPlaceRewardClaim(claim) {
+  if (!claim) return null;
+  return {
+    canceledAt: claim.canceledAt || '',
+    canceledReason: claim.canceledReason || '',
+    createdAt: claim.createdAt || '',
+    expiresAt: claim.expiresAt || '',
+    fulfilledAt: claim.fulfilledAt || '',
+    fulfillmentReference: claim.fulfillmentReference || '',
+    fulfillmentSlaAt: claim.fulfillmentSlaAt || '',
+    id: claim.id,
+    periodEnd: claim.periodEnd || '',
+    periodStart: claim.periodStart || '',
+    points: Number(claim.points || 0),
+    rank: Number(claim.rank || 0),
+    redeemedAt: claim.redeemedAt || '',
+    rewardDescription: claim.rewardDescription || '',
+    rewardLabel: claim.rewardLabel || '',
+    rewardType: claim.rewardType || 'digital_badge',
+    rewardTypeLabel: placeRewardTypeLabel(claim.rewardType),
+    settlementId: claim.settlementId || '',
+    status: normalizePlaceRewardClaimStatus(claim.status),
+    statusLabel: placeRewardStatusLabel(claim.status),
+  };
+}
+
+function placeRewardProgramForPhone(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const changed = expirePlaceRewardClaims();
+  const claims = ensurePlaceRewardClaims()
+    .filter((claim) => normalizePhone(claim.phone) === normalizedPhone)
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))
+    .map(publicPlaceRewardClaim);
+  return {
+    changed,
+    claims,
+    policy: placeContributionRewardPolicySnapshot(),
+    summary: {
+      available: claims.filter((claim) => claim.status === 'available').length,
+      expired: claims.filter((claim) => claim.status === 'expired').length,
+      fulfilled: claims.filter((claim) => claim.status === 'fulfilled').length,
+      redeemed: claims.filter((claim) => claim.status === 'redeemed').length,
+      total: claims.length,
+    },
+  };
+}
+
+function notifyPlaceRewardClaim(phone, claim, type) {
+  if (!phone || !claim || !state.users?.[phone]) return false;
+  const content = type === 'fulfilled'
+    ? `${claim.rewardLabel || '地点共建奖励'}已发放${claim.fulfillmentReference ? `，凭证：${claim.fulfillmentReference}` : ''}。`
+    : type === 'canceled'
+      ? `${claim.rewardLabel || '地点共建奖励'}已取消${claim.canceledReason ? `，原因：${claim.canceledReason}` : ''}。`
+      : `你在地点共建活动中排名第 ${claim.rank || '-'}，获得${claim.rewardLabel || '地点共建奖励'}，请在 ${String(claim.expiresAt || '').slice(0, 10)} 前领取。`;
+  return addNotification(phone, {
+    category: 'system',
+    createdAt: new Date().toISOString(),
+    id: `n-place-reward-${type}-${claim.id}-${Date.now()}`,
+    kind: 'place_reward',
+    placeRewardClaimId: claim.id,
+    read: false,
+    text: content,
+    title: type === 'fulfilled' ? '地点共建奖励已发放' : type === 'canceled' ? '地点共建奖励已取消' : '获得地点共建奖励',
+  }, 'system', { force: true });
+}
+
+function adminSettlePlaceRewards(admin, body = {}) {
+  const config = currentOpsConfig().places || defaultOpsConfig().places;
+  const policy = normalizePlaceContributionRewardPolicy(config.contributionRewardPolicy, defaultOpsConfig().places.contributionRewardPolicy);
+  if (!policy.enabled || !policy.settlementEnabled || !policy.redemptionEnabled) {
+    return { error: '请先在配置中心同时开启地点奖励、活动结算和用户领取', statusCode: 409 };
+  }
+  const period = normalizePlaceRewardPeriod(body, policy);
+  if (period.error) return period;
+  const existing = ensurePlaceRewardSettlements().find((item) => item.periodStart === period.periodStart && item.periodEnd === period.periodEnd);
+  if (existing) {
+    return {
+      claims: ensurePlaceRewardClaims().filter((claim) => claim.settlementId === existing.id).map(publicPlaceRewardClaim),
+      duplicate: true,
+      settlement: existing,
+    };
+  }
+  const overlapping = ensurePlaceRewardSettlements().find((item) => (
+    Date.parse(String(period.periodStart)) < Date.parse(String(item.periodEnd || ''))
+    && Date.parse(String(period.periodEnd)) > Date.parse(String(item.periodStart || ''))
+  ));
+  if (overlapping) return { error: '该活动周期与已结算周期重叠', statusCode: 409 };
+  const rows = placeRewardPeriodLeaderboard(period, policy, { includePrivate: true });
+  const now = new Date().toISOString();
+  const settlement = {
+    createdAt: now,
+    createdBy: admin?.username || 'admin',
+    eligibleCount: rows.length,
+    id: `place-reward-settlement-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    periodEnd: period.periodEnd,
+    periodStart: period.periodStart,
+    policySnapshot: {
+      ...policy,
+      configUpdatedAt: currentOpsConfig().updatedAt || '',
+      policyVersion: 'place-reward-v1',
+    },
+    rows: rows.map((row) => ({
+      phone: row.phone,
+      points: Number(row.points || 0),
+      rank: Number(row.rank || 0),
+      total: Number(row.total || 0),
+    })),
+    status: 'settled',
+  };
+  const createdMs = Date.parse(now);
+  const claims = rows.map((row) => ({
+    createdAt: now,
+    expiresAt: new Date(createdMs + policy.redemptionWindowDays * 24 * 60 * 60 * 1000).toISOString(),
+    fulfillmentSlaDays: policy.fulfillmentSlaDays,
+    id: `place-reward-claim-${Date.now()}-${row.rank}-${Math.random().toString(16).slice(2, 7)}`,
+    periodEnd: period.periodEnd,
+    periodStart: period.periodStart,
+    phone: row.phone,
+    points: Number(row.points || 0),
+    rank: Number(row.rank || 0),
+    redemptionEnabled: policy.redemptionEnabled,
+    rewardDescription: policy.description,
+    rewardLabel: policy.rewardLabel,
+    rewardType: policy.rewardType,
+    settlementId: settlement.id,
+    status: 'available',
+  }));
+  ensurePlaceRewardSettlements().unshift(settlement);
+  ensurePlaceRewardClaims().unshift(...claims);
+  claims.forEach((claim) => notifyPlaceRewardClaim(claim.phone, claim, 'awarded'));
+  writeAdminAudit(admin, 'place.reward.settle', 'place_reward_settlement', settlement.id, null, settlement, `${period.periodStart} - ${period.periodEnd}，${claims.length} 人获奖`);
+  return { claims: claims.map(publicPlaceRewardClaim), duplicate: false, settlement };
+}
+
+function redeemPlaceRewardClaim(user, claimId) {
+  expirePlaceRewardClaims();
+  const claim = ensurePlaceRewardClaims().find((item) => item.id === String(claimId || '').trim());
+  if (!claim || normalizePhone(claim.phone) !== normalizePhone(user?.phone)) return { error: '奖励记录不存在', statusCode: 404 };
+  const status = normalizePlaceRewardClaimStatus(claim.status);
+  if (status !== 'available') return { error: status === 'redeemed' || status === 'fulfilled' ? '该奖励已经领取' : '该奖励当前不可领取', statusCode: 409 };
+  const policy = placeContributionRewardPolicySnapshot();
+  if (!claim.redemptionEnabled || !policy.redemptionEnabled) return { error: '奖励兑换当前未开放', statusCode: 409 };
+  const now = new Date().toISOString();
+  claim.status = 'redeemed';
+  claim.redeemedAt = now;
+  claim.fulfillmentSlaAt = new Date(Date.parse(now) + Math.max(1, Number(claim.fulfillmentSlaDays || policy.fulfillmentSlaDays || 14)) * 24 * 60 * 60 * 1000).toISOString();
+  return { claim: publicPlaceRewardClaim(claim) };
+}
+
+function adminFulfillPlaceRewardClaim(admin, claimId, body = {}) {
+  const claim = ensurePlaceRewardClaims().find((item) => item.id === String(claimId || '').trim());
+  if (!claim) return { error: '奖励记录不存在', statusCode: 404 };
+  if (normalizePlaceRewardClaimStatus(claim.status) !== 'redeemed') return { error: '只有用户已领取、待发放的奖励可以确认履约', statusCode: 409 };
+  const fulfillmentReference = String(body.fulfillmentReference || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (fulfillmentReference.length < 2) return { error: '请填写发放凭证或履约说明', statusCode: 400 };
+  const before = { ...claim };
+  claim.fulfilledAt = new Date().toISOString();
+  claim.fulfilledBy = admin?.username || 'admin';
+  claim.fulfillmentReference = fulfillmentReference;
+  claim.status = 'fulfilled';
+  notifyPlaceRewardClaim(claim.phone, claim, 'fulfilled');
+  writeAdminAudit(admin, 'place.reward.fulfill', 'place_reward_claim', claim.id, before, claim, fulfillmentReference);
+  return { claim: publicPlaceRewardClaim(claim) };
+}
+
+function adminCancelPlaceRewardClaim(admin, claimId, body = {}) {
+  const claim = ensurePlaceRewardClaims().find((item) => item.id === String(claimId || '').trim());
+  if (!claim) return { error: '奖励记录不存在', statusCode: 404 };
+  if (!['available', 'redeemed'].includes(normalizePlaceRewardClaimStatus(claim.status))) return { error: '该奖励不能取消', statusCode: 409 };
+  const reason = sanitizePlaceContributionReason(body.reason);
+  if (reason.length < 4) return { error: '请填写 4 个字以上的取消原因', statusCode: 400 };
+  const before = { ...claim };
+  claim.canceledAt = new Date().toISOString();
+  claim.canceledBy = admin?.username || 'admin';
+  claim.canceledReason = reason;
+  claim.status = 'canceled';
+  notifyPlaceRewardClaim(claim.phone, claim, 'canceled');
+  writeAdminAudit(admin, 'place.reward.cancel', 'place_reward_claim', claim.id, before, claim, reason);
+  return { claim: publicPlaceRewardClaim(claim) };
+}
+
+function adminPlaceRewardProgram() {
+  const changed = expirePlaceRewardClaims();
+  const policy = placeContributionRewardPolicySnapshot();
+  const previewPeriod = placeRewardDefaultClosedPeriod(policy);
+  const previewRows = placeRewardPeriodLeaderboard(previewPeriod, policy, { includePrivate: true });
+  const claims = ensurePlaceRewardClaims()
+    .map((claim) => ({
+      ...publicPlaceRewardClaim(claim),
+      ownerName: state.users?.[claim.phone]?.ownerName || `用户${String(claim.phone || '').slice(-4)}`,
+      phone: claim.phone,
+    }))
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+  const now = Date.now();
+  return {
+    changed,
+    claims,
+    policy,
+    preview: { periodEnd: previewPeriod.periodEnd, periodStart: previewPeriod.periodStart, rows: previewRows },
+    settlements: ensurePlaceRewardSettlements().slice().sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || ''))),
+    summary: {
+      available: claims.filter((claim) => claim.status === 'available').length,
+      canceled: claims.filter((claim) => claim.status === 'canceled').length,
+      expired: claims.filter((claim) => claim.status === 'expired').length,
+      fulfilled: claims.filter((claim) => claim.status === 'fulfilled').length,
+      overdue: claims.filter((claim) => claim.status === 'redeemed' && Date.parse(String(claim.fulfillmentSlaAt || '')) < now).length,
+      redeemed: claims.filter((claim) => claim.status === 'redeemed').length,
+      settlementCount: ensurePlaceRewardSettlements().length,
+      total: claims.length,
+    },
   };
 }
 
@@ -20018,7 +20368,7 @@ function notificationBelongsToConversation(notification, conversationId) {
 }
 
 const notificationCategories = new Set(['health', 'interaction', 'system', 'walk']);
-const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'medical_alert', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_submission', 'support_reply', 'system', 'vaccine_done', 'vaccine_reminder', 'walk_invite']);
+const notificationKinds = new Set(['conversation_message', 'greeting_accepted', 'greeting_request', 'health_reminder', 'medical_alert', 'pet_circle_comment', 'pet_circle_greeting', 'pet_circle_like', 'place_review', 'place_reward', 'place_submission', 'support_reply', 'system', 'vaccine_done', 'vaccine_reminder', 'walk_invite']);
 
 function normalizeNotificationCategory(category) {
   const value = String(category || '').trim();
@@ -20047,6 +20397,7 @@ function inferNotificationKind(notification) {
   if (/greeting-accepted/.test(id)) return 'greeting_accepted';
   if (/greeting/.test(id)) return 'greeting_request';
   if (/walk/.test(id)) return 'walk_invite';
+  if (/place-reward/.test(id)) return 'place_reward';
   if (/place-submission/.test(id)) return 'place_submission';
   if (/(support|ticket|feedback|customer-service)/.test(id)) return 'support_reply';
   if (/review/.test(id)) return 'place_review';
@@ -20902,6 +21253,7 @@ const businessPushDataKeys = [
   'ownerId',
   'petId',
   'placeId',
+  'placeRewardClaimId',
   'postId',
   'reportAppealId',
   'reportId',
@@ -22761,7 +23113,9 @@ function adminUserBusinessDataSummary(phone) {
     petChatMessages: petChatKeys.reduce((sum, key) => sum + (Array.isArray(state.petChatMessages?.[key]) ? state.petChatMessages[key].length : 0), 0),
     petChatThreads: petChatKeys.length,
     pets: Array.isArray(user.pets) ? user.pets.length : 0,
+    placeContributions: ensurePlaceContributions().filter((item) => normalizePhone(item?.phone) === normalizedPhone).length,
     placeReviews: (state.placeReviews?.[normalizedPhone] || []).length,
+    placeRewardClaims: ensurePlaceRewardClaims().filter((item) => normalizePhone(item?.phone) === normalizedPhone).length,
     placeSubmissions: (state.placeSubmissions?.[normalizedPhone] || []).length,
     pushDevices: (state.pushDevices?.[normalizedPhone] || []).length,
     businessPushDeliveries: ensureBusinessPushDeliveries().filter((item) => item.phone === normalizedPhone || notificationBelongsToClearedUser(item.data || item, normalizedPhone, ids)).length,
@@ -22999,6 +23353,15 @@ function adminClearUserBusinessData(admin, phone, body = {}, options = {}) {
   if (state.petChatDailyUsage) delete state.petChatDailyUsage[normalizedPhone];
   if (state.placeReviews) delete state.placeReviews[normalizedPhone];
   if (state.placeSubmissions) delete state.placeSubmissions[normalizedPhone];
+  state.placeContributions = ensurePlaceContributions().filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.placeRewardClaims = ensurePlaceRewardClaims().filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.placeRewardSettlements = ensurePlaceRewardSettlements().map((item) => ({
+    ...item,
+    rows: Array.isArray(item?.rows) ? item.rows.filter((row) => normalizePhone(row?.phone) !== normalizedPhone) : [],
+  }));
+  (state.places || []).forEach((place) => {
+    if (Array.isArray(place?.contributorPhones)) place.contributorPhones = place.contributorPhones.filter((value) => normalizePhone(value) !== normalizedPhone);
+  });
   if (state.notifications) delete state.notifications[normalizedPhone];
   if (state.pushDevices) delete state.pushDevices[normalizedPhone];
   state.businessPushDeliveries = ensureBusinessPushDeliveries().filter((item) => item.phone !== normalizedPhone && !notificationBelongsToClearedUser(item.data || item, normalizedPhone, ids));
@@ -23792,6 +24155,11 @@ function purgeAccountAfterCoolingOff(phone, user, now = Date.now()) {
   clearSmsLoginSecurity(normalizedPhone);
   state.appEvents = (state.appEvents || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone && !valueContainsExactPhone(item, normalizedPhone));
   state.placeContributions = (state.placeContributions || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.placeRewardClaims = (state.placeRewardClaims || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
+  state.placeRewardSettlements = (state.placeRewardSettlements || []).map((item) => ({
+    ...item,
+    rows: Array.isArray(item?.rows) ? item.rows.filter((row) => normalizePhone(row?.phone) !== normalizedPhone) : [],
+  }));
   state.userSanctions = (state.userSanctions || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
   state.sanctionAppeals = (state.sanctionAppeals || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone && !sanctionIds.has(item?.sanctionId));
   state.adminDataClearApprovals = (state.adminDataClearApprovals || []).filter((item) => normalizePhone(item?.phone) !== normalizedPhone);
@@ -28123,7 +28491,10 @@ function adminPermissionRows() {
     ['message.moderate', '隐藏违规私信消息', '社区安全'],
     ['user.sanction', '创建或撤销处罚', '社区安全'],
     ['sanction.appeal.process', '处理账号/举报申诉', '社区安全'],
+    ['place.view', '查看地点、贡献和奖励记录', '地点'],
     ['place.moderate', '审核地点点评和新增地点', '地点'],
+    ['place.reward.settle', '结算地点贡献活动', '地点'],
+    ['place.reward.fulfill', '发放或取消地点活动奖励', '地点'],
     ['support.ticket.process', '处理客服工单', '客服'],
     ['notification.send', '发送、预约、撤回系统通知', '通知'],
     ['notification.approve', '提交和审批系统通知', '通知'],
@@ -28158,6 +28529,7 @@ function adminRolePermissionMap() {
     'ai.avatar.view',
     'ai.chat.view_summary',
     'moderation.view',
+    'place.view',
     'audit.view',
     'system.health.view',
     'launch.readiness.view',
@@ -28180,6 +28552,7 @@ function adminRolePermissionMap() {
       'social.report.process',
       'message.view_content',
       'message.moderate',
+      'place.view',
       'place.moderate',
       'audit.view',
       'launch.readiness.view',
@@ -28203,6 +28576,20 @@ function adminRolePermissionMap() {
       'ai.chat.view_summary',
       'social.relation.repair',
       'support.ticket.process',
+      'audit.view',
+      'launch.readiness.view',
+    ],
+    place_moderator: [
+      'dashboard.view',
+      'place.view',
+      'place.moderate',
+      'audit.view',
+      'launch.readiness.view',
+    ],
+    place_reward_operator: [
+      'dashboard.view',
+      'place.view',
+      'place.reward.fulfill',
       'audit.view',
       'launch.readiness.view',
     ],
@@ -28249,6 +28636,8 @@ function adminRoleCatalog() {
     { key: 'super_admin', label: '超级管理员', note: '用于账号权限、审批最终确认和危险配置。', status: 'active' },
     { key: 'ops_admin', label: '运营管理员', note: '用于日常运营、配置、通知、工单和非导出类治理操作。', status: 'active' },
     { key: 'content_moderator', label: '内容审核员', note: '用于动态、评论、图片、私信上下文和地点内容审核。', status: 'active' },
+    { key: 'place_moderator', label: '地点审核员', note: '用于地点、点评和地点投稿审核，不可结算或发放活动奖励。', status: 'active' },
+    { key: 'place_reward_operator', label: '地点奖励履约员', note: '用于查看地点奖励并登记发放或取消，不可修改贡献分或发起结算。', status: 'active' },
     { key: 'support', label: '客服', note: '用于工单、低风险用户排查、关系状态排查和备注。', status: 'active' },
     { key: 'auditor', label: '审计员', note: '用于只读审计、看板和上线台账复核。', status: 'active' },
   ].map((role) => ({ ...role, permissionKeys: roleMap[role.key] || [] }));
@@ -28313,8 +28702,10 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (path.startsWith('/admin/ai/avatar-samples')) return httpMethod === 'GET' ? 'ai.avatar.view' : 'ai.avatar.sample';
   if (path.startsWith('/admin/ai/avatar-feedback')) return httpMethod === 'GET' ? 'ai.avatar.view' : 'ai.avatar.sample';
   if (path.startsWith('/admin/ai')) return 'ai.avatar.view';
-  if (path === '/admin/places') return httpMethod === 'GET' ? 'place.moderate' : 'place.moderate';
-  if (path.startsWith('/admin/places')) return httpMethod === 'GET' ? 'place.moderate' : 'place.moderate';
+  if (path === '/admin/places/rewards/settle') return 'place.reward.settle';
+  if (/^\/admin\/places\/rewards\/claims\/[^/]+\/(?:cancel|fulfill)$/u.test(path)) return 'place.reward.fulfill';
+  if (path === '/admin/places/contributions/adjust' || /^\/admin\/places\/contributions\/[^/]+\/void$/u.test(path)) return 'place.reward.settle';
+  if (path === '/admin/places' || path.startsWith('/admin/places')) return httpMethod === 'GET' ? 'place.view' : 'place.moderate';
   if (path === '/admin/feedback' || path.startsWith('/admin/feedback/')) return 'support.ticket.process';
   if (path === '/admin/legal-documents') return httpMethod === 'GET' ? 'legal.documents.view' : 'legal.documents.update';
   if (path.startsWith('/admin/legal-documents/')) return httpMethod === 'GET' ? 'legal.documents.view' : 'legal.documents.update';
@@ -29548,10 +29939,10 @@ function adminReadinessModules(context) {
       key: 'places',
       module: '地点审核',
       group: '地点',
-      status: 'partial',
-      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并、贡献账本、贡献纠偏、匿名贡献榜、荣誉候选策略和公开点评展示策略。',
-      mobileLinkage: '审核状态会影响地点详情、地点提交和用户通知中心；公开点评、贡献身份、我的排名和荣誉候选提示均由配置中心下发。',
-      nextStep: '生产期补真实活动结算/兑换规则和多角色权限。',
+      status: 'ready',
+      evidence: '地点点评和新增地点支持通过/驳回、关联已有地点、原因模板、通知、导出、地点编辑、人工合并、贡献账本、周期榜单冻结、奖励资格、领取/履约/取消审计和奖励导出。',
+      mobileLinkage: '审核状态会影响地点详情、提交和通知；移动端展示贡献身份与活动奖励，支持确认领取并跟踪待发放、已发放、取消和过期状态。',
+      nextStep: '生产期按活动配置 Top N、最低分、奖励类型、领取期限和履约 SLA，并由地点审核、结算、履约三类角色分权值守。',
     },
     {
       key: 'support',
@@ -29628,7 +30019,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入永久封禁审批流和高风险最少会签人数；达到会签人数后才真正写入处罚并影响移动端账号状态。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏；完整敏感字段导出必须具备 data.export.sensitive 权限，并提交 includeSensitive=true 的导出审批。', '影响隐私合规和数据泄露风险。', 'ready', '已接入'],
-    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '首发只展示贡献积分、轻量等级、我的排名和匿名排行榜；不承诺现金、实物或兑换权益。后台保留调整/撤销和荣誉候选，未来活动另行配置规则。', '影响地点生态激励。', 'ready', '首发范围已确定'],
+    ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '贡献积分、轻量等级、我的排名和匿名排行榜可按配置展示；活动奖励默认关闭，开启时按已结束周期冻结 Top N 和最低分，生成一次性领取资格，并由独立履约角色发放或取消。', '影响地点生态激励。', 'ready', '结算与兑换规则已实现'],
     ['q-notification-approval', 'P1', '系统通知是否需要发送审批？', '已接入发送审批流、“强制审批”配置开关和高风险最少会签人数；达到会签人数后才发送。', '影响误发和运营风险。', 'ready', '已接入'],
     ['q-config-approval', 'P0', '配置强制更新、维护模式、全功能关闭是否必须审批？', '已接入配置发布审批流、“强制配置发布审批”开关和高风险最少会签人数；达到会签人数后才发布 /app/config。', '影响事故风险和发布治理。', 'ready', '已接入'],
     ['q-compliance-text', 'P0', 'App 备案、隐私政策、内容审核制度是否已准备生产版文本？', compliancePolicy, '影响正式上线合规。', complianceReady ? 'ready' : 'open', complianceReady ? '已签署' : '待签署'],
@@ -37579,6 +37970,41 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     return true;
   }
 
+  if (req.method === 'GET' && pathname === '/admin/places/rewards') {
+    const result = adminPlaceRewardProgram();
+    if (result.changed) saveState();
+    delete result.changed;
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/places/rewards/settle') {
+    const result = adminSettlePlaceRewards(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'ADMIN_PLACE_REWARD_SETTLEMENT_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminPlaceRewardClaimActionMatch = pathname.match(/^\/admin\/places\/rewards\/claims\/([^/]+)\/(fulfill|cancel)$/);
+  if (req.method === 'POST' && adminPlaceRewardClaimActionMatch) {
+    const claimId = decodeURIComponent(adminPlaceRewardClaimActionMatch[1]);
+    const action = adminPlaceRewardClaimActionMatch[2];
+    const result = action === 'fulfill'
+      ? adminFulfillPlaceRewardClaim(admin, claimId, body)
+      : adminCancelPlaceRewardClaim(admin, claimId, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, `ADMIN_PLACE_REWARD_${action.toUpperCase()}_INVALID`);
+      return true;
+    }
+    saveState();
+    ok(res, result);
+    return true;
+  }
+
   const adminPlaceDetailMatch = pathname.match(/^\/admin\/places\/([^/]+)$/);
   if ((req.method === 'GET' || req.method === 'PATCH') && adminPlaceDetailMatch) {
     const placeId = decodeURIComponent(adminPlaceDetailMatch[1]);
@@ -40470,6 +40896,29 @@ async function handle(req, res) {
       mySummary: placeContributionSummaryForPhone(user.phone),
       rewardPolicy,
     });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/places/contributions/rewards') {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    const result = placeRewardProgramForPhone(user.phone);
+    if (result.changed) saveState();
+    delete result.changed;
+    ok(res, result);
+    return;
+  }
+
+  const placeRewardRedeemMatch = pathname.match(/^\/places\/contributions\/rewards\/([^/]+)\/redeem$/);
+  if (req.method === 'POST' && placeRewardRedeemMatch) {
+    if (failIfFeatureDisabled(res, 'places', '地图地点')) return;
+    const claimId = decodeURIComponent(placeRewardRedeemMatch[1]);
+    const result = redeemPlaceRewardClaim(user, claimId);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, 'PLACE_REWARD_REDEEM_INVALID');
+      return;
+    }
+    saveState();
+    ok(res, result);
     return;
   }
 

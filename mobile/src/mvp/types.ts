@@ -142,10 +142,51 @@ export type PlaceContributionRewardPolicy = {
   cycleLabel?: string;
   description?: string;
   enabled?: boolean;
+  fulfillmentSlaDays?: number;
   leaderboardEnabled?: boolean;
+  minimumPoints?: number;
   publicEnabled?: boolean;
+  redemptionEnabled?: boolean;
+  redemptionWindowDays?: number;
   rewardLabel?: string;
+  rewardType?: 'coupon' | 'digital_badge' | 'physical';
+  settlementEnabled?: boolean;
   topN?: number;
+};
+
+export type PlaceRewardClaim = {
+  canceledAt?: string;
+  canceledReason?: string;
+  createdAt: string;
+  expiresAt: string;
+  fulfilledAt?: string;
+  fulfillmentReference?: string;
+  fulfillmentSlaAt?: string;
+  id: string;
+  periodEnd: string;
+  periodStart: string;
+  points: number;
+  rank: number;
+  redeemedAt?: string;
+  rewardDescription?: string;
+  rewardLabel: string;
+  rewardType: 'coupon' | 'digital_badge' | 'physical';
+  rewardTypeLabel?: string;
+  settlementId: string;
+  status: 'available' | 'canceled' | 'expired' | 'fulfilled' | 'redeemed';
+  statusLabel?: string;
+};
+
+export type PlaceRewardProgram = {
+  claims: PlaceRewardClaim[];
+  policy: PlaceContributionRewardPolicy;
+  summary: {
+    available: number;
+    expired: number;
+    fulfilled: number;
+    redeemed: number;
+    total: number;
+  };
 };
 
 export type OwnerProfilePatch = Partial<Pick<UserProfile, 'ownerAvatarUrl' | 'ownerBio' | 'ownerName'>> & {
@@ -664,7 +705,7 @@ export type WalkInviteResult = {
 };
 
 export type NotificationCategory = 'health' | 'interaction' | 'system' | 'walk';
-export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'medical_alert' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_submission' | 'support_reply' | 'system' | 'vaccine_done' | 'vaccine_reminder' | 'walk_invite';
+export type NotificationKind = 'conversation_message' | 'greeting_accepted' | 'greeting_request' | 'health_reminder' | 'medical_alert' | 'pet_circle_comment' | 'pet_circle_greeting' | 'pet_circle_like' | 'place_review' | 'place_reward' | 'place_submission' | 'support_reply' | 'system' | 'vaccine_done' | 'vaccine_reminder' | 'walk_invite';
 
 export type NotificationItem = {
   actionRoute?: 'discover' | 'home' | 'map' | 'notifications' | 'petCircleProfile' | 'profile' | 'safety' | 'settings' | 'supportTickets';
@@ -681,6 +722,7 @@ export type NotificationItem = {
   ownerId?: string;
   petId?: string;
   placeId?: string;
+  placeRewardClaimId?: string;
   postId?: string;
   read: boolean;
   readAt?: string;

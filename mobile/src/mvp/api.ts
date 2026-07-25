@@ -42,6 +42,8 @@ import type {
   PetProfilePatch,
   PetTaxonomy,
   Place,
+  PlaceRewardClaim,
+  PlaceRewardProgram,
   PlaceReview,
   PlaceSubmission,
   PermissionStateMap,
@@ -674,6 +676,14 @@ function createHttpApi(baseUrl: string): LumiiApi {
 
       async listMySubmissions(): Promise<ApiResult<PlaceSubmission[]>> {
         return request<PlaceSubmission[]>('GET', '/places/submissions/my');
+      },
+
+      async listMyRewards(): Promise<ApiResult<PlaceRewardProgram>> {
+        return request<PlaceRewardProgram>('GET', '/places/contributions/rewards');
+      },
+
+      async redeemReward(claimId: string): Promise<ApiResult<{ claim: PlaceRewardClaim }>> {
+        return request<{ claim: PlaceRewardClaim }>('POST', `/places/contributions/rewards/${encodeURIComponent(claimId)}/redeem`);
       },
 
       async createReview(placeId: string, content: string, imageUrls: string[] = []): Promise<ApiResult<PlaceReview>> {
