@@ -28,6 +28,7 @@ const suites = [
   { key: 'ai-provider-reconciliation', title: 'AI provider reconciliation and compensation', script: 'smoke-ai-provider-reconciliation.cjs', timeoutMs: 180_000 },
   { key: 'pet-chat-quality-review', title: 'Pet chat quality review', script: 'smoke-pet-chat-quality-review.cjs', timeoutMs: 180_000 },
   { key: 'pet-chat-medical-risk-rules', title: 'Pet chat medical risk rules', script: 'smoke-pet-chat-medical-risk-rules.cjs', timeoutMs: 180_000 },
+  { key: 'pet-chat-medical-signoff', title: 'Pet chat veterinary medical signoff', script: 'smoke-pet-chat-medical-signoff.cjs', timeoutMs: 180_000 },
 
   { key: 'content-safety', title: 'Content safety E2E', script: 'smoke-content-safety-e2e.cjs', timeoutMs: 180_000 },
   { key: 'legal-documents', title: 'Legal document signoff', script: 'smoke-legal-documents.cjs', timeoutMs: 180_000 },

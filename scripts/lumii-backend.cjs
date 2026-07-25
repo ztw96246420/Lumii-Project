@@ -75,6 +75,7 @@ const PET_CHAT_SUMMARY_MAX_CHARS = Number(process.env.PET_CHAT_SUMMARY_MAX_CHARS
 const PET_CHAT_MAX_TOKENS = Number(process.env.PET_CHAT_MAX_TOKENS || '420');
 const PET_CHAT_MAX_INPUT_CHARS = Number(process.env.PET_CHAT_MAX_INPUT_CHARS || '600');
 const PET_CHAT_DAILY_LIMIT = Number(process.env.PET_CHAT_DAILY_LIMIT || '80');
+const PET_MEDICAL_REVIEW_VALID_DAYS = Math.max(30, Math.min(730, Math.floor(Number(process.env.LUMII_PET_MEDICAL_REVIEW_VALID_DAYS || '365') || 365)));
 const SOCIAL_MESSAGE_MAX_CHARS = Number(process.env.SOCIAL_MESSAGE_MAX_CHARS || '600');
 const SOCIAL_GREETING_MESSAGE_MAX_CHARS = Math.max(20, Math.min(240, Number(process.env.SOCIAL_GREETING_MESSAGE_MAX_CHARS || '120') || 120));
 const TTAPI_API_KEY = process.env.TTAPI_API_KEY || '';
@@ -1060,6 +1061,7 @@ function createInitialState() {
     launchReadinessSignoff: {},
     legalDocuments: {},
     legalOperatorProfile: {},
+    petMedicalReviewSignoff: {},
     publicApiExternalProof: {},
     opsConfigApprovals: [],
     adminLoginSecurity: {
@@ -6207,6 +6209,7 @@ function loadState() {
       launchReadinessSignoff: loadedState.launchReadinessSignoff && typeof loadedState.launchReadinessSignoff === 'object' && !Array.isArray(loadedState.launchReadinessSignoff) ? loadedState.launchReadinessSignoff : initialState.launchReadinessSignoff,
       legalDocuments: loadedState.legalDocuments && typeof loadedState.legalDocuments === 'object' && !Array.isArray(loadedState.legalDocuments) ? loadedState.legalDocuments : initialState.legalDocuments,
       legalOperatorProfile: loadedState.legalOperatorProfile && typeof loadedState.legalOperatorProfile === 'object' && !Array.isArray(loadedState.legalOperatorProfile) ? loadedState.legalOperatorProfile : initialState.legalOperatorProfile,
+      petMedicalReviewSignoff: loadedState.petMedicalReviewSignoff && typeof loadedState.petMedicalReviewSignoff === 'object' && !Array.isArray(loadedState.petMedicalReviewSignoff) ? loadedState.petMedicalReviewSignoff : initialState.petMedicalReviewSignoff,
       publicApiExternalProof: loadedState.publicApiExternalProof && typeof loadedState.publicApiExternalProof === 'object' && !Array.isArray(loadedState.publicApiExternalProof) ? loadedState.publicApiExternalProof : initialState.publicApiExternalProof,
       socialComments: Array.isArray(loadedState.socialComments) ? loadedState.socialComments : initialState.socialComments,
       socialLikes: Array.isArray(loadedState.socialLikes) ? loadedState.socialLikes : initialState.socialLikes,
@@ -19236,6 +19239,150 @@ function petChatReplySafetyFallback(user, reason) {
   ].join('\n\n');
 }
 
+const PET_MEDICAL_REVIEW_CONFIRM_TEXT = '确认已由执业兽医完成复核';
+
+function petMedicalReviewVersion() {
+  const rules = PET_MEDICAL_RISK_RULES.map((rule) => ({
+    patterns: rule.patterns.map((pattern) => pattern.toString()),
+    reason: rule.reason,
+    severity: rule.severity,
+  }));
+  const payload = JSON.stringify({
+    baseSystemPrompt: petChatBaseSystemPrompt(),
+    fallbackPetChatReply: fallbackPetChatReply.toString(),
+    medicalSafetyReply: petMedicalSafetyReply.toString(),
+    postFilter: detectUnsafePetMedicalReply.toString(),
+    postFilterFallback: petChatReplySafetyFallback.toString(),
+    rules,
+  });
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+function normalizePetMedicalReviewSignoff(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const decision = ['approved', 'rejected', 'revoked'].includes(String(value.decision || '')) ? String(value.decision) : '';
+  return {
+    confirmedLicensedVeterinarian: value.confirmedLicensedVeterinarian === true,
+    credentialNumberHash: /^[0-9a-f]{64}$/u.test(String(value.credentialNumberHash || '')) ? String(value.credentialNumberHash) : '',
+    credentialNumberTail: String(value.credentialNumberTail || '').replace(/[^0-9A-Za-z]/gu, '').slice(-4),
+    credentialType: String(value.credentialType || '').replace(/\s+/gu, ' ').trim().slice(0, 80),
+    decision,
+    evidenceReference: String(value.evidenceReference || '').replace(/\s+/gu, ' ').trim().slice(0, 240),
+    note: String(value.note || '').replace(/\s+/gu, ' ').trim().slice(0, 600),
+    reviewVersion: /^[0-9a-f]{64}$/u.test(String(value.reviewVersion || '')) ? String(value.reviewVersion) : '',
+    reviewedAt: String(value.reviewedAt || '').slice(0, 40),
+    reviewedBy: String(value.reviewedBy || '').replace(/\s+/gu, ' ').trim().slice(0, 80),
+    reviewerName: String(value.reviewerName || '').replace(/\s+/gu, ' ').trim().slice(0, 80),
+    validUntil: String(value.validUntil || '').slice(0, 40),
+  };
+}
+
+function adminPetMedicalReviewStatus() {
+  const currentReviewVersion = petMedicalReviewVersion();
+  const signoff = normalizePetMedicalReviewSignoff(state.petMedicalReviewSignoff);
+  const signed = Boolean(signoff.decision);
+  const stale = signed && signoff.reviewVersion !== currentReviewVersion;
+  const expired = signoff.decision === 'approved'
+    && (!signoff.validUntil || Number.isNaN(Date.parse(signoff.validUntil)) || Date.parse(signoff.validUntil) <= Date.now());
+  const ready = Boolean(
+    signoff.decision === 'approved'
+    && signoff.confirmedLicensedVeterinarian
+    && signoff.reviewerName
+    && signoff.credentialType
+    && signoff.credentialNumberHash
+    && signoff.evidenceReference
+    && !stale
+    && !expired
+  );
+  const status = ready ? 'ready' : stale ? 'stale' : expired ? 'expired' : signoff.decision === 'rejected' ? 'rejected' : 'pending';
+  return {
+    confirmText: PET_MEDICAL_REVIEW_CONFIRM_TEXT,
+    currentReviewVersion,
+    currentReviewVersionTail: currentReviewVersion.slice(-12),
+    expired,
+    ready,
+    reviewValidDays: PET_MEDICAL_REVIEW_VALID_DAYS,
+    signoff: signed ? {
+      confirmedLicensedVeterinarian: signoff.confirmedLicensedVeterinarian,
+      credentialNumberTail: signoff.credentialNumberTail,
+      credentialType: signoff.credentialType,
+      decision: signoff.decision,
+      evidenceReference: signoff.evidenceReference,
+      note: signoff.note,
+      reviewVersion: signoff.reviewVersion,
+      reviewVersionTail: signoff.reviewVersion.slice(-12),
+      reviewedAt: signoff.reviewedAt,
+      reviewedBy: signoff.reviewedBy,
+      reviewerName: signoff.reviewerName,
+      validUntil: signoff.validUntil,
+    } : null,
+    stale,
+    status,
+    statusLabel: ready
+      ? '执业兽医复核有效'
+      : stale
+        ? '医疗规则已变更，需重新复核'
+        : expired
+          ? '兽医复核已过期'
+          : signoff.decision === 'rejected'
+            ? '兽医复核未通过'
+            : '等待执业兽医复核',
+  };
+}
+
+function updatePetMedicalReviewSignoff(admin, body = {}) {
+  const decision = String(body.decision || 'approved').trim();
+  const reason = String(body.reason || '').replace(/\s+/gu, ' ').trim().slice(0, 240);
+  if (!['approved', 'rejected', 'revoked'].includes(decision)) return { error: '医疗安全签审结论无效', statusCode: 400 };
+  if (reason.length < 8) return { error: '请填写至少 8 个字的签审原因', statusCode: 400 };
+  const before = cloneJson(state.petMedicalReviewSignoff || {});
+  const currentReviewVersion = petMedicalReviewVersion();
+  if (decision === 'revoked') {
+    state.petMedicalReviewSignoff = {
+      ...normalizePetMedicalReviewSignoff(before),
+      decision: 'revoked',
+      note: reason,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: admin?.username || 'admin',
+    };
+    writeAdminAudit(admin, 'ai.petChat.medical_signoff.revoke', 'pet_medical_review', currentReviewVersion, before, state.petMedicalReviewSignoff, reason);
+    return adminPetMedicalReviewStatus();
+  }
+  if (String(body.reviewVersion || '') !== currentReviewVersion) {
+    return { code: 'ADMIN_PET_MEDICAL_REVIEW_STALE', error: '医疗规则版本已变化，请刷新后重新复核', statusCode: 409 };
+  }
+  const reviewerName = String(body.reviewerName || '').replace(/\s+/gu, ' ').trim().slice(0, 80);
+  const credentialType = String(body.credentialType || '').replace(/\s+/gu, ' ').trim().slice(0, 80);
+  const credentialNumber = String(body.credentialNumber || '').replace(/\s+/gu, '').trim().slice(0, 160);
+  const evidenceReference = String(body.evidenceReference || '').replace(/\s+/gu, ' ').trim().slice(0, 240);
+  const note = String(body.note || '').replace(/\s+/gu, ' ').trim().slice(0, 600);
+  if (reviewerName.length < 2) return { error: '请填写执业兽医姓名', statusCode: 400 };
+  if (credentialType.length < 2) return { error: '请填写执业资质类型', statusCode: 400 };
+  if (credentialNumber.length < 4) return { error: '请填写执业资质编号', statusCode: 400 };
+  if (evidenceReference.length < 4) return { error: '请填写签审材料或归档位置', statusCode: 400 };
+  if (note.length < 8) return { error: '请填写至少 8 个字的专业复核说明', statusCode: 400 };
+  if (body.confirmedLicensedVeterinarian !== true || String(body.confirmText || '') !== PET_MEDICAL_REVIEW_CONFIRM_TEXT) {
+    return { error: `必须确认并输入“${PET_MEDICAL_REVIEW_CONFIRM_TEXT}”`, statusCode: 400 };
+  }
+  const now = new Date();
+  state.petMedicalReviewSignoff = {
+    confirmedLicensedVeterinarian: true,
+    credentialNumberHash: crypto.createHash('sha256').update(credentialNumber).digest('hex'),
+    credentialNumberTail: credentialNumber.replace(/[^0-9A-Za-z]/gu, '').slice(-4),
+    credentialType,
+    decision,
+    evidenceReference,
+    note,
+    reviewVersion: currentReviewVersion,
+    reviewedAt: now.toISOString(),
+    reviewedBy: admin?.username || 'admin',
+    reviewerName,
+    validUntil: new Date(now.getTime() + PET_MEDICAL_REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+  };
+  writeAdminAudit(admin, `ai.petChat.medical_signoff.${decision === 'approved' ? 'approve' : 'reject'}`, 'pet_medical_review', currentReviewVersion, before, state.petMedicalReviewSignoff, reason);
+  return adminPetMedicalReviewStatus();
+}
+
 async function callDeepSeekPetChat(user, text, history) {
   const emergency = detectPetMedicalEmergency(text);
   if (emergency) {
@@ -28618,6 +28765,7 @@ async function adminSystemHealth() {
   ].filter(Boolean);
   const smsProvider = smsProviderStatus();
   const aiRuntime = aiRuntimeReadiness();
+  const petMedicalReview = adminPetMedicalReviewStatus();
   const accountDeletions = accountDeletionOperationsSummary(now);
   const petDeletions = petDeletionOperationsSummary();
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
@@ -28821,6 +28969,13 @@ async function adminSystemHealth() {
       `seed=${seedFixturePlaceCount} missingCoordinates=${unlocatedRuntimePlaceCount} radius=${effectiveDiscoverRadiusKm()}km`,
     ),
     adminCheckStatus(aiRuntime.chatReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'deepseek', 'DeepSeek 对话', aiRuntime.chatReady ? 'AI 对话真实模型密钥已配置' : `当前 provider=${aiRuntime.chatProvider}，生产真实对话未就绪`, effectiveDeepSeekChatConfig().model),
+    adminCheckStatus(
+      petMedicalReview.ready ? 'ok' : 'warn',
+      'pet_medical_review',
+      '宠物医疗安全专业复核',
+      petMedicalReview.statusLabel,
+      `reviewVersion=${petMedicalReview.currentReviewVersionTail} reviewer=${petMedicalReview.signoff?.reviewerName || '-'} validUntil=${petMedicalReview.signoff?.validUntil || '-'}`,
+    ),
     adminCheckStatus(aiRuntime.avatarReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'pet_avatar_provider', '灵伴形象生成', aiRuntime.avatarReady ? `当前 provider：${aiRuntime.avatarProvider}` : `真实图片 provider 未就绪：${aiRuntime.avatarProvider}`, `gpt-image-2 key=${GPT_IMAGE2_API_KEY ? 'set' : 'missing'} resolution=${effectiveGptImage2AvatarConfig().resolution}`),
     adminCheckStatus(aiRuntime.animationReady ? 'ok' : RUNTIME_ENV === 'production' ? 'bad' : 'warn', 'pet_avatar_animation_provider', '灵伴动效生成', aiRuntime.animationReady ? aiRuntime.animationEnabled ? `当前 provider：${aiRuntime.animationProvider}` : '当前按配置关闭动效生成' : `真实动效 provider 未就绪：${aiRuntime.animationProvider}`, `apimart key=${APIMART_API_KEY ? 'set' : 'missing'} ${effectiveSeedanceAvatarAnimationConfig().duration}s/${effectiveSeedanceAvatarAnimationConfig().aspectRatio}/${effectiveSeedanceAvatarAnimationConfig().resolution}`),
     adminCheckStatus(appMediaPublicBaseUrl() ? 'ok' : 'warn', 'public_media_base', '媒体公开访问域名', appMediaPublicBaseUrl() ? '已配置公开访问 base URL' : '未配置公开访问 base URL，部分媒体 URL 依赖请求 Host', 'PET_AVATAR_PUBLIC_BASE_URL / LUMII_PUBLIC_BASE_URL'),
@@ -28862,12 +29017,13 @@ async function adminSystemHealth() {
       { key: 'launchReadinessQuestionOverrides', label: '上线台账决策', rows: countObject(state.launchReadinessQuestionOverrides) },
       { key: 'launchReadinessSignoff', label: '上线台账签署', rows: countObject(state.launchReadinessSignoff) ? 1 : 0 },
       { key: 'legalDocuments', label: '合规文本', rows: adminLegalDocumentsStatus().summary.total },
+      { key: 'petMedicalReviewSignoff', label: '宠物医疗专业复核', rows: Object.keys(state.petMedicalReviewSignoff || {}).length ? 1 : 0 },
       { key: 'appEvents', label: '移动端事件', rows: countArray(state.appEvents) },
       { key: 'notifications', label: '通知记录', rows: countNotificationRows },
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'audit_cos_archive', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'audit_cos_archive', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_medical_review', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -28906,6 +29062,7 @@ async function adminSystemHealth() {
     },
     alertWebhook,
     auditArchive,
+    petMedicalReview,
     pushAcceptance,
     publicApiProbe,
     publicApiExternalProof,
@@ -28937,6 +29094,7 @@ function adminPermissionRows() {
     ['ai.avatar.compensate', '处理 AI 任务、成本对账与用户赔付', 'AI'],
     ['ai.avatar.sample', '沉淀和复核 AI 灵伴样本', 'AI'],
     ['ai.chat.view_summary', '查看 AI 对话摘要和风险标签', 'AI'],
+    ['ai.chat.medical_signoff', '记录执业兽医医疗安全签审', 'AI'],
     ['moderation.view', '查看内容安全任务池', '内容安全'],
     ['moderation.process', '处理内容安全任务', '内容安全'],
     ['moderation.sample_review', '复审内容安全命中与抽样样本', '内容安全'],
@@ -29152,6 +29310,7 @@ function adminRequiredPermissionForRequest(method, pathname) {
   if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/view$/u.test(path)) return 'message.view_content';
   if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/(hide|unhide)$/u.test(path)) return 'message.moderate';
   if (/^\/admin\/ai\/pet-chat\/messages\/[^/]+\/(tag|quality-review)$/u.test(path)) return 'moderation.sample_review';
+  if (path === '/admin/ai/pet-chat/medical-signoff') return httpMethod === 'GET' ? 'ai.chat.view_summary' : 'ai.chat.medical_signoff';
   if (path.startsWith('/admin/ai/pet-chat')) return 'ai.chat.view_summary';
   if (/^\/admin\/ai\/avatar-(jobs|animation-jobs)\/[^/]+\/apply$/u.test(path)) return 'pet.media_moderate';
   if (/^\/admin\/ai\/avatar-jobs\/[^/]+\/(?:mark-failed|reconciliation|refresh|refund-quota|retry)$/u.test(path)) return 'ai.avatar.compensate';
@@ -30314,6 +30473,7 @@ function adminReadinessModules(context) {
   const aiRuntime = aiRuntimeReadiness();
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   const auditArchiveReady = health?.auditArchive?.status === 'healthy' || health?.auditArchive?.status === 'empty';
+  const petMedicalReview = health?.petMedicalReview || adminPetMedicalReviewStatus();
   const pushAcceptance = health?.pushAcceptance || adminPushProductionAcceptance();
   return [
     {
@@ -30360,10 +30520,12 @@ function adminReadinessModules(context) {
       key: 'pet_chat',
       module: 'AI 对话抽检',
       group: 'AI',
-      status: 'partial',
-      evidence: '已支持摘要检索、原因审计后查看、生成快照追溯、11 类医疗风险门禁与否定语义防误报、多审核员复核历史与一致率、模型/Prompt 版本分桶、7 天自动回归分析、隐藏/恢复 AI 回复和样本导出。',
+      status: petMedicalReview.ready ? 'ready' : 'partial',
+      evidence: `已支持摘要检索、原因审计后查看、生成快照追溯、11 类医疗风险门禁与否定语义防误报、多审核员复核历史与一致率、模型/Prompt 版本分桶、7 天自动回归分析、隐藏/恢复 AI 回复和样本导出。专业复核：${petMedicalReview.statusLabel}（规则 ${petMedicalReview.currentReviewVersionTail}）。`,
       mobileLinkage: '隐藏回复后移动端不再返回，后续上下文也跳过被隐藏回复。',
-      nextStep: '上线前由执业兽医复核医疗提示文案和高风险回归样本；生产期按误报/漏报持续扩充样本。',
+      nextStep: petMedicalReview.ready
+        ? `复核有效至 ${petMedicalReview.signoff?.validUntil || '-'}；医疗规则、Prompt 或安全回复变化后系统会自动要求重新签审，生产期持续扩充误报/漏报样本。`
+        : '由执业兽医按当前规则版本复核医疗提示文案与高风险/否定样本，并在 AI 对话页登记资质摘要、材料归档位置和专业结论。',
     },
     {
       key: 'moderation',
@@ -30468,6 +30630,7 @@ function adminReadinessQuestions(context = {}) {
   const ipAllowlistReady = Boolean(context.accounts?.security?.ipAllowlist?.configured);
   const mfaReady = Boolean(context.accounts?.security?.mfa?.configured);
   const mfaPartial = Boolean(context.accounts?.security?.mfa?.partial);
+  const petMedicalReview = context.health?.petMedicalReview || adminPetMedicalReviewStatus();
   const legalStatus = adminLegalDocumentsStatus();
   const complianceReady = Boolean(legalStatus.summary.allRequiredApproved);
   const compliancePolicy = complianceReady
@@ -30482,6 +30645,7 @@ function adminReadinessQuestions(context = {}) {
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '已接入策略：不开放任意全文检索；仅允许在举报/关系排查中查看最近上下文窗口，窗口大小、原因必填和保留标记由 social.messageAccess 配置；单 admin 阶段视为带审计的自审批；隐藏私信会同步影响双方移动端会话。', '影响隐私合规和骚扰治理能力。', 'ready', '已接入'],
     ['q-clear-data', 'P1', '用户业务数据清理是否只保留测试环境？', '首发保留后台入口但不向移动端开放；仅具备 data.clear 权限的管理员可发起，必须满足高风险双人会签，执行结果写入独立审计链。', '影响误操作风险、用户数据权益和客服 SOP。', 'ready', '已确定'],
     ['q-ai-refund', 'P1', 'AI 失败额度返还规则如何定义？', '已接入可配置策略：默认供应商提交失败、供应商超时、供应商返回失败会自动返还；照片不合格、内容安全拦截、运营手动标失败不自动返还，后台仍可人工返还且防重复。', '影响用户权益、成本和客服处理标准。', 'ready', '已接入'],
+    ['q-vet-review', 'P1', 'AI 宠物医疗安全文案和高风险规则是否已由执业兽医复核？', petMedicalReview.ready ? `已由 ${petMedicalReview.signoff?.reviewerName || '执业兽医'} 对规则版本 ${petMedicalReview.currentReviewVersionTail} 完成复核，凭证有效至 ${petMedicalReview.signoff?.validUntil || '-'}。` : `${petMedicalReview.statusLabel}；当前规则版本 ${petMedicalReview.currentReviewVersionTail}，需在 AI 对话页登记资质摘要和签审材料位置。`, '影响医疗误导、急症漏报和用户安全。', petMedicalReview.ready ? 'ready' : 'open', petMedicalReview.ready ? '已签审' : '待专业复核'],
     ['q-ban-approval', 'P0', '永久封禁是否必须双人审批？', '已接入永久封禁审批流和高风险最少会签人数；达到会签人数后才真正写入处罚并影响移动端账号状态。', '影响高风险处罚治理。', 'ready', '已接入'],
     ['q-pii-export', 'P0', '导出完整手机号是否允许？如允许，谁审批？', '当前导出默认脱敏；完整敏感字段导出必须具备 data.export.sensitive 权限，并提交 includeSensitive=true 的导出审批。', '影响隐私合规和数据泄露风险。', 'ready', '已接入'],
     ['q-place-reward', 'P2', '地点贡献分是否对用户公开展示，是否接贡献等级、活动奖励或兑换规则？', '贡献积分、轻量等级、我的排名和匿名排行榜可按配置展示；活动奖励默认关闭，开启时按已结束周期冻结 Top N 和最低分，生成一次性领取资格，并由独立履约角色发放或取消。', '影响地点生态激励。', 'ready', '结算与兑换规则已实现'],
@@ -30530,6 +30694,7 @@ function adminReadinessGaps(context) {
   const legalConsentReady = RUNTIME_ENV !== 'production' || (REQUIRE_LEGAL_CONSENT && legalConsentDocumentsReady);
   const legacyAuthReady = !ALLOW_LEGACY_LOCAL_AUTH;
   const aiRuntime = aiRuntimeReadiness();
+  const petMedicalReview = health?.petMedicalReview || adminPetMedicalReviewStatus();
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
   const unlocatedRuntimePlaceCount = runtimePlaceCatalog().filter((place) => !placeCoordinates(place)).length;
   const placeDiscoveryReady = Boolean(AMAP_WEB_SERVICE_KEY) && seedFixturePlaceCount === 0;
@@ -30645,6 +30810,19 @@ function adminReadinessGaps(context) {
         ? '持续监控供应商成功率、卡住任务、额度返还、生成成本和对话质量。'
         : '配置并验证 GPT Image 2、Seedance（启用动效时）和 DeepSeek 的真实 provider 与密钥，再执行图片生成、动效播放和宠物第一人称对话真机验收。',
       evidence: '系统健康页 pet_avatar_provider / pet_avatar_animation_provider / deepseek / AI 任务调用轨迹',
+    },
+    {
+      key: 'pet_medical_review',
+      area: 'AI 医疗安全',
+      severity: 'P1',
+      status: petMedicalReview.ready ? 'ready' : 'partial',
+      issue: petMedicalReview.ready
+        ? `当前宠物医疗规则与安全文案已由执业兽医复核，签审绑定规则版本 ${petMedicalReview.currentReviewVersionTail}，有效至 ${petMedicalReview.signoff?.validUntil || '-'}。`
+        : `${petMedicalReview.statusLabel}；代码已覆盖 11 类急症规则、否定/历史语义和模型回复后置过滤，但没有与当前规则哈希绑定的有效专业签审。`,
+      requiredAction: petMedicalReview.ready
+        ? '规则、Prompt 或安全回复变更后按自动失效提示重新复核；到期前续签并持续回流误报/漏报样本。'
+        : '请执业兽医复核医疗规则、固定安全回复、模型后置拦截以及正反例样本；在 AI 对话页登记姓名、资质类型、资质编号摘要、证据归档位置和专业结论。',
+      evidence: 'GET/POST /admin/ai/pet-chat/medical-signoff / 系统健康 pet_medical_review / docs/AI_Pet_Medical_Veterinary_Review_Package_2026-07-25.md',
     },
     {
       key: 'place_discovery',
@@ -38312,6 +38490,22 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/ai/pet-chat/quality-review') {
     ok(res, adminPetChatQualityReview());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/ai/pet-chat/medical-signoff') {
+    ok(res, adminPetMedicalReviewStatus());
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/ai/pet-chat/medical-signoff') {
+    const result = updatePetMedicalReviewSignoff(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_PET_MEDICAL_REVIEW_INVALID');
+      return true;
+    }
+    saveState();
+    ok(res, result);
     return true;
   }
 

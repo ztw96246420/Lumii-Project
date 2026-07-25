@@ -552,6 +552,10 @@ async function onContentClick(event) {
       await reviewPetChatMessage(button);
       return;
     }
+    if (action === 'pet-chat-medical-signoff') {
+      await updatePetMedicalSignoff(button);
+      return;
+    }
     if (action === 'pet-chat-hide') {
       await hidePetChatMessage(button);
       return;
@@ -1869,6 +1873,45 @@ async function reviewPetChatMessage(button) {
   state.cache.petChatQualityReview = null;
   state.cache.audit = null;
   showToast('AI 对话复核已记录');
+  await render(true);
+}
+
+async function updatePetMedicalSignoff(button) {
+  const decision = button.dataset.decision || 'approved';
+  if (decision === 'revoked') {
+    const reason = window.prompt('请输入撤销专业复核的原因', '医疗规则或签审凭证需要重新复核');
+    if (reason === null) return;
+    await post('/admin/ai/pet-chat/medical-signoff', {
+      decision,
+      reason: reason.trim(),
+    });
+  } else {
+    const confirmed = Boolean($('petMedicalConfirmed')?.checked);
+    if (!confirmed) {
+      showToast('请先确认已由执业兽医完成复核');
+      return;
+    }
+    const payload = {
+      confirmedLicensedVeterinarian: true,
+      confirmText: button.dataset.confirmText || '',
+      credentialNumber: $('petMedicalCredentialNumber')?.value.trim() || '',
+      credentialType: $('petMedicalCredentialType')?.value.trim() || '',
+      decision,
+      evidenceReference: $('petMedicalEvidenceReference')?.value.trim() || '',
+      note: $('petMedicalReviewNote')?.value.trim() || '',
+      reason: $('petMedicalReviewReason')?.value.trim() || '',
+      reviewerName: $('petMedicalReviewerName')?.value.trim() || '',
+      reviewVersion: button.dataset.reviewVersion || '',
+    };
+    if (!payload.reviewerName || !payload.credentialNumber || !payload.evidenceReference || !payload.note || !payload.reason) {
+      showToast('请填写兽医姓名、资质编号、材料位置、复核说明和签审原因');
+      return;
+    }
+    if (!window.confirm(`确认记录“${decision === 'approved' ? '复核通过' : '复核不通过'}”？资质编号只保存哈希和末四位。`)) return;
+    await post('/admin/ai/pet-chat/medical-signoff', payload);
+  }
+  state.cache = { ...state.cache, audit: null, health: null, launchReadiness: null, petChatMedicalReview: null };
+  showToast(decision === 'revoked' ? '专业复核已撤销' : '专业复核已记录');
   await render(true);
 }
 
@@ -4447,6 +4490,50 @@ function petChatQualityReviewStatusLabel(status) {
   }[status] || '待复核';
 }
 
+function renderPetMedicalReviewSignoff(review = {}) {
+  const signoff = review.signoff || {};
+  const tone = review.ready ? 'ok' : review.status === 'rejected' || review.status === 'stale' || review.status === 'expired' ? 'bad' : 'warn';
+  return `
+    <div class="card pet-medical-signoff-card">
+      <div class="section-head">
+        <div>
+          <h2>宠物医疗安全专业复核</h2>
+          <div class="section-sub">${tonePill(review.statusLabel || '等待执业兽医复核', tone)} · 当前规则 ${escapeHtml(review.currentReviewVersionTail || '-')}</div>
+        </div>
+        ${help('签审绑定当前医疗规则、基础 Prompt、固定安全回复和模型后置过滤的 SHA-256。任一内容变化后，旧签审会自动失效。资质编号仅保存 SHA-256 和末四位。')}
+      </div>
+      <div class="grid metrics compact-metrics">
+        ${metric('签审状态', review.statusLabel || '待复核', review.ready ? `有效至 ${formatTime(signoff.validUntil)}` : '不作为上线完成证据', '只有与当前规则哈希一致且未过期的执业兽医签审，才会让 AI 对话模块转为 ready。')}
+        ${metric('复核人员', signoff.reviewerName || '-', signoff.credentialType ? `${escapeHtml(signoff.credentialType)} · 尾号 ${escapeHtml(signoff.credentialNumberTail || '-')}` : '尚未登记资质摘要', '完整资质编号不会在后台接口或页面回显。')}
+        ${metric('证据归档', signoff.evidenceReference || '-', signoff.reviewedAt ? formatTime(signoff.reviewedAt) : '尚未签审', '填写签字扫描件、工单或受控文档的归档编号/位置，不在这里上传敏感证照原件。')}
+        ${metric('复核周期', `${numberText(review.reviewValidDays || 365)} 天`, review.stale ? '规则已变化，立即失效' : '规则变化优先于时间有效期', '即使仍在有效期，医疗规则、Prompt 或安全回复变化也会要求重新复核。')}
+      </div>
+      ${review.ready ? `
+        <div class="callout ok"><strong>当前版本已完成专业复核</strong><span>${escapeHtml(signoff.note || '已确认医疗安全边界与高风险样本。')}</span></div>
+        <div class="actions"><button class="small-button danger" data-action="pet-chat-medical-signoff" data-decision="revoked">撤销复核</button></div>
+      ` : `
+        <div class="notification-form">
+          <div class="notification-form-row">
+            <label>执业兽医姓名<input id="petMedicalReviewerName" maxlength="80" placeholder="与签审材料一致" /></label>
+            <label>资质类型<input id="petMedicalCredentialType" maxlength="80" value="执业兽医师资格证" /></label>
+          </div>
+          <div class="notification-form-row">
+            <label>资质编号<input id="petMedicalCredentialNumber" maxlength="160" autocomplete="off" placeholder="提交后只保存哈希和末四位" /></label>
+            <label>材料归档位置<input id="petMedicalEvidenceReference" maxlength="240" placeholder="例如：受控文档编号或签审工单" /></label>
+          </div>
+          <label>专业复核说明<textarea id="petMedicalReviewNote" maxlength="600" placeholder="说明已复核范围、结论和需持续观察事项"></textarea></label>
+          <label>签审原因<input id="petMedicalReviewReason" maxlength="240" placeholder="至少 8 个字，用于审计日志" /></label>
+          <label class="check"><input id="petMedicalConfirmed" type="checkbox" /> ${escapeHtml(review.confirmText || '确认已由执业兽医完成复核')}</label>
+          <div class="actions">
+            <button class="primary-button" data-action="pet-chat-medical-signoff" data-decision="approved" data-review-version="${escapeHtml(review.currentReviewVersion || '')}" data-confirm-text="${escapeHtml(review.confirmText || '')}">记录复核通过</button>
+            <button class="small-button danger" data-action="pet-chat-medical-signoff" data-decision="rejected" data-review-version="${escapeHtml(review.currentReviewVersion || '')}" data-confirm-text="${escapeHtml(review.confirmText || '')}">记录复核不通过</button>
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+}
+
 async function renderPetChat(force) {
   const query = new URLSearchParams({
     flag: state.petChatFlag,
@@ -4454,6 +4541,7 @@ async function renderPetChat(force) {
   });
   const rows = await load('petChat', `/admin/ai/pet-chat/messages?${query.toString()}`, force);
   const qualityReview = await load('petChatQualityReview', '/admin/ai/pet-chat/quality-review', force);
+  const medicalReview = await load('petChatMedicalReview', '/admin/ai/pet-chat/medical-signoff', force);
   const medicalCount = rows.filter((row) => row.hasMedicalAlert).length;
   const writeCount = rows.filter((row) => row.hasCalendarWrite || row.updatedPet).length;
   const offCount = rows.filter((row) => row.feedback === 'off').length;
@@ -4477,6 +4565,7 @@ async function renderPetChat(force) {
       ${metric('审核分歧', numberText(reviewSummary.reviewDisagreements || 0), '禁止恢复安全样本', '内容安全样本存在审核分歧时，必须先取得一致结论才能恢复给移动端。')}
       ${metric('模型回归', numberText((qualityReview.modelBuckets || []).filter((row) => row.regressionDetected).length), '近 7 天自动比较', '两个连续 7 天窗口各至少 5 条样本，问题率上升 15 个百分点时标记回归。')}
     </div>
+    ${renderPetMedicalReviewSignoff(medicalReview)}
     ${renderPetChatQualityReviewPanel(qualityReview)}
     <div class="card">
       <div class="section-head">

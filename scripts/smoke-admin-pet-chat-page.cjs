@@ -207,6 +207,8 @@ async function main() {
     await page.locator('#nav button[data-route="petChat"]').click();
     const unhideButton = page.locator(`button[data-action="pet-chat-unhide"][data-id="${aiMessageId}"]`).first();
     await unhideButton.waitFor({ timeout: 30_000 });
+    await page.getByText('宠物医疗安全专业复核', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByText('等待执业兽医复核', { exact: false }).first().waitFor({ timeout: 30_000 });
     await page.locator('.metric-label').filter({ hasText: '审核一致率' }).waitFor({ timeout: 30_000 });
     await page.getByText('模型 / Prompt 版本质量趋势', { exact: true }).waitFor({ timeout: 30_000 });
 
