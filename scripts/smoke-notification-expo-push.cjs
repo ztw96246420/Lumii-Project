@@ -151,6 +151,7 @@ async function startBackend(port) {
       EXPO_PUSH_RECEIPT_RETRY_MS: '100',
       EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS: '1000',
       EXPO_PUSH_TIMEOUT_MS: '3000',
+      LUMII_PUSH_ACCEPTANCE_MIN_ANDROID_BUILD: '19',
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
       SMS_COOLDOWN_MS: '0',
@@ -261,6 +262,26 @@ async function main() {
     const userToken = await loginUser(phone);
     const adminToken = await loginAdmin();
 
+    const acceptanceBefore = await request('/admin/notifications/production-acceptance', { token: adminToken });
+    assert.equal(acceptanceBefore.data.ready, false);
+    assert.equal(acceptanceBefore.data.status, 'partial');
+    assert.ok(acceptanceBefore.data.missing.includes('正式构建已登记'));
+
+    for (const deviceId of ['expo-good-device', 'expo-receipt-bad-device', 'expo-bad-device']) {
+      await request('/devices/push-registration', {
+        body: {
+          appBuildNumber: 19,
+          appVersion: '1.0.0',
+          deviceId,
+          platform: 'android',
+          stage: 'native_token',
+          status: 'registering',
+        },
+        method: 'POST',
+        token: userToken,
+      });
+    }
+
     await request('/devices/push-token', {
       body: { deviceId: 'expo-good-device', platform: 'android', token: 'ExponentPushToken[smoke-good-token]' },
       method: 'POST',
@@ -326,6 +347,12 @@ async function main() {
     assert.equal(notifications.summary.pushReceiptOk, 1);
     assert.equal(notifications.summary.pushReceiptFailed, 1);
     assert.equal(notifications.summary.pushReceiptSuccessRate, 50);
+    assert.equal(notifications.productionAcceptance.ready, true);
+    assert.equal(notifications.productionAcceptance.status, 'ready');
+    assert.equal(notifications.productionAcceptance.requiredAndroidBuild, 19);
+    assert.equal(notifications.productionAcceptance.acceptedDeviceCount, 1);
+    assert.equal(notifications.productionAcceptance.recentRegistrationFailureCount, 0);
+    assert.ok(notifications.productionAcceptance.latestProofAt);
 
     const feedback = await request('/feedback', {
       body: { category: 'other', content: 'Business push smoke support ticket' },
@@ -391,8 +418,16 @@ async function main() {
 
     const healthPayload = await request('/admin/system/health', { token: adminToken });
     const pushHealth = healthPayload.data.checks.find((item) => item.key === 'expo_push');
-    assert.equal(pushHealth?.status, 'warn');
-    assert.match(pushHealth?.detail || '', /receipt 失败 1/);
+    assert.equal(pushHealth?.status, 'ok');
+    assert.match(pushHealth?.detail || '', /build 19/);
+    assert.equal(healthPayload.data.pushAcceptance?.ready, true);
+
+    const readiness = await request('/admin/launch/readiness', { token: adminToken });
+    const notificationModule = readiness.data.modules.find((item) => item.key === 'notifications');
+    const pushProviderGap = readiness.data.gaps.find((item) => item.key === 'push_provider');
+    assert.equal(notificationModule?.status, 'ready');
+    assert.equal(pushProviderGap?.status, 'ready');
+    assert.match(pushProviderGap?.issue || '', /build 19/);
 
     console.log('notification expo push smoke passed');
   } finally {

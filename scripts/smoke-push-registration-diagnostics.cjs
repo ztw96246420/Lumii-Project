@@ -190,6 +190,8 @@ async function main() {
     assert.equal(failedDevice.hasToken, false);
     assert.equal(failedDevice.registrationStatus, 'failed');
     assert.equal(failedDevice.registrationFailureCode, 'native_config_missing');
+    assert.equal(notificationsBefore.data.productionAcceptance.ready, false);
+    assert.ok(notificationsBefore.data.productionAcceptance.missing.includes('Expo Push 下发'));
 
     const healthBefore = await request('/admin/system/health', { token: adminToken });
     const pushHealthBefore = healthBefore.data.checks.find((item) => item.key === 'expo_push');
@@ -220,6 +222,8 @@ async function main() {
     assert.equal(registeredDevice.hasToken, true);
     assert.equal(registeredDevice.registrationStatus, 'registered');
     assert.equal(registeredDevice.tokenTail.length, 8);
+    assert.equal(notificationsAfter.data.productionAcceptance.ready, false);
+    assert.ok(notificationsAfter.data.productionAcceptance.missing.includes('Push ticket 成功'));
 
     console.log('push registration diagnostics smoke passed');
   } finally {

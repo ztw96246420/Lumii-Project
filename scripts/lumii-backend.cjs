@@ -203,6 +203,9 @@ const EXPO_PUSH_RECEIPT_SWEEP_INTERVAL_MS = Math.max(1000, Number(process.env.EX
 const EXPO_PUSH_RECEIPT_MAX_ATTEMPTS = Math.max(1, Math.min(12, Number(process.env.EXPO_PUSH_RECEIPT_MAX_ATTEMPTS || '4') || 4));
 const EXPO_PUSH_RECEIPT_MAX_AGE_MS = Math.max(60 * 1000, Number(process.env.EXPO_PUSH_RECEIPT_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
 const EXPO_PUSH_RECEIPT_BATCH_SIZE = Math.max(1, Math.min(1000, Number(process.env.EXPO_PUSH_RECEIPT_BATCH_SIZE || '1000') || 1000));
+const PUSH_PRODUCTION_ACCEPTANCE_MAX_AGE_MS = Math.max(24 * 60 * 60 * 1000, Number(process.env.LUMII_PUSH_ACCEPTANCE_MAX_AGE_MS || 30 * 24 * 60 * 60 * 1000) || 30 * 24 * 60 * 60 * 1000);
+const PUSH_PRODUCTION_ACCEPTANCE_FAILURE_WINDOW_MS = Math.max(60 * 60 * 1000, Number(process.env.LUMII_PUSH_ACCEPTANCE_FAILURE_WINDOW_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
+const PUSH_PRODUCTION_ACCEPTANCE_MIN_ANDROID_BUILD = Math.max(1, Math.floor(Number(process.env.LUMII_PUSH_ACCEPTANCE_MIN_ANDROID_BUILD || '1') || 1));
 const BUSINESS_PUSH_DELIVERY_RETAIN = Math.max(100, Math.min(5000, Number(process.env.BUSINESS_PUSH_DELIVERY_RETAIN || '2000') || 2000));
 
 const argPortIndex = process.argv.findIndex((item) => item === '--port');
@@ -22110,6 +22113,137 @@ function adminPushDevices() {
   return [...rows.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }
 
+function adminPushProductionAcceptance(inputDevices = adminPushDevices()) {
+  const now = Date.now();
+  const evidenceCutoff = now - PUSH_PRODUCTION_ACCEPTANCE_MAX_AGE_MS;
+  const failureCutoff = now - PUSH_PRODUCTION_ACCEPTANCE_FAILURE_WINDOW_MS;
+  const devices = Array.isArray(inputDevices) ? inputDevices : [];
+  const androidDevices = devices.filter((device) => device.platform === 'android');
+  const highestObservedBuild = androidDevices.reduce((highest, device) => Math.max(highest, Number(device.appBuildNumber || 0)), 0);
+  const requiredAndroidBuild = Math.max(PUSH_PRODUCTION_ACCEPTANCE_MIN_ANDROID_BUILD, highestObservedBuild);
+  const onRequiredBuild = (device) => Number(device.appBuildNumber || 0) === requiredAndroidBuild;
+  const isRecent = (value, cutoff = evidenceCutoff) => {
+    const timestamp = Date.parse(String(value || ''));
+    return Number.isFinite(timestamp) && timestamp >= cutoff;
+  };
+  const registeredDevices = androidDevices.filter((device) => (
+    onRequiredBuild(device)
+    && device.enabled === true
+    && device.hasToken === true
+    && device.registrationStatus === 'registered'
+    && isRecent(device.updatedAt || device.registeredAt)
+  ));
+  const recentRegistrationFailures = androidDevices.filter((device) => (
+    onRequiredBuild(device)
+    && device.registrationStatus === 'failed'
+    && isRecent(device.updatedAt || device.lastAttemptAt, failureCutoff)
+  ));
+  const ticketVerifiedDevices = registeredDevices.filter((device) => (
+    device.lastPushStatus === 'sent'
+    && isRecent(device.lastPushAt)
+  ));
+  const acceptedDevices = ticketVerifiedDevices.filter((device) => (
+    device.lastPushReceiptStatus === 'ok'
+    && isRecent(device.lastPushReceiptAt)
+  ));
+  const acceptedEvidence = acceptedDevices.map((device) => {
+    const timestamps = [device.updatedAt || device.registeredAt, device.lastPushAt, device.lastPushReceiptAt]
+      .map((value) => Date.parse(String(value || '')))
+      .filter(Number.isFinite);
+    return {
+      appBuildNumber: Number(device.appBuildNumber || 0),
+      appVersion: device.appVersion || '',
+      deviceId: device.deviceId || '',
+      lastPushAt: device.lastPushAt || '',
+      lastPushReceiptAt: device.lastPushReceiptAt || '',
+      platform: 'android',
+      proofCompletedAt: timestamps.length === 3 ? new Date(Math.min(...timestamps)).toISOString() : '',
+    };
+  });
+  const criteria = [
+    {
+      detail: EXPO_PUSH_ENABLED ? 'Expo Push 下发开关已启用' : 'EXPO_PUSH_ENABLED 尚未启用',
+      key: 'provider_enabled',
+      label: 'Expo Push 下发',
+      met: EXPO_PUSH_ENABLED,
+    },
+    {
+      detail: EXPO_PUSH_RECEIPTS_ENABLED ? 'Expo receipt 轮询已启用' : 'Expo receipt 轮询尚未启用',
+      key: 'receipt_polling_enabled',
+      label: 'Receipt 轮询',
+      met: EXPO_PUSH_RECEIPTS_ENABLED,
+    },
+    {
+      detail: highestObservedBuild >= PUSH_PRODUCTION_ACCEPTANCE_MIN_ANDROID_BUILD
+        ? `已观测 Android build ${highestObservedBuild}`
+        : `尚未观测 build ${PUSH_PRODUCTION_ACCEPTANCE_MIN_ANDROID_BUILD} 或更高版本`,
+      key: 'release_build_observed',
+      label: '正式构建已登记',
+      met: highestObservedBuild >= PUSH_PRODUCTION_ACCEPTANCE_MIN_ANDROID_BUILD,
+    },
+    {
+      detail: registeredDevices.length
+        ? `${registeredDevices.length} 台 build ${requiredAndroidBuild} Android 设备已完成原生 token 与后端登记`
+        : `尚无 build ${requiredAndroidBuild} Android 设备完成近期登记`,
+      key: 'android_device_registered',
+      label: 'Android 原生配置与登记',
+      met: registeredDevices.length > 0,
+    },
+    {
+      detail: recentRegistrationFailures.length
+        ? `${recentRegistrationFailures.length} 台 build ${requiredAndroidBuild} 设备在近 ${Math.round(PUSH_PRODUCTION_ACCEPTANCE_FAILURE_WINDOW_MS / 3_600_000)} 小时仍处于登记失败状态`
+        : `build ${requiredAndroidBuild} 近期待处理登记失败为 0`,
+      key: 'registration_failures_cleared',
+      label: '近期登记失败清零',
+      met: recentRegistrationFailures.length === 0,
+    },
+    {
+      detail: ticketVerifiedDevices.length
+        ? `${ticketVerifiedDevices.length} 台同构建设备已有近期成功 Expo ticket`
+        : '尚无同一台正式构建设备的近期成功 Expo ticket',
+      key: 'ticket_verified',
+      label: 'Push ticket 成功',
+      met: ticketVerifiedDevices.length > 0,
+    },
+    {
+      detail: acceptedDevices.length
+        ? `${acceptedDevices.length} 台同构建设备已完成 ticket + receipt 全链路`
+        : '尚无同一台正式构建设备的近期成功 receipt',
+      key: 'receipt_verified',
+      label: 'Push receipt 成功',
+      met: acceptedDevices.length > 0,
+    },
+  ];
+  const ready = criteria.every((criterion) => criterion.met);
+  const status = ready ? 'ready' : !EXPO_PUSH_ENABLED || !EXPO_PUSH_RECEIPTS_ENABLED ? 'blocked' : 'partial';
+  const missing = criteria.filter((criterion) => !criterion.met).map((criterion) => criterion.label);
+  const latestProofAt = acceptedEvidence
+    .map((item) => item.proofCompletedAt)
+    .filter(Boolean)
+    .sort((a, b) => String(b).localeCompare(String(a)))[0] || '';
+  return {
+    acceptedDeviceCount: acceptedDevices.length,
+    criteria,
+    evidenceMaxAgeDays: Math.round(PUSH_PRODUCTION_ACCEPTANCE_MAX_AGE_MS / (24 * 60 * 60 * 1000)),
+    failureWindowHours: Math.round(PUSH_PRODUCTION_ACCEPTANCE_FAILURE_WINDOW_MS / (60 * 60 * 1000)),
+    highestObservedAndroidBuild: highestObservedBuild,
+    iosRegisteredDevices: devices.filter((device) => device.platform === 'ios' && device.enabled && device.hasToken).length,
+    latestProofAt,
+    missing,
+    proofDevices: acceptedEvidence.slice(0, 20),
+    provider: EXPO_PUSH_ENABLED ? 'expo' : 'disabled',
+    ready,
+    recentRegistrationFailureCount: recentRegistrationFailures.length,
+    registeredAndroidDeviceCount: registeredDevices.length,
+    requiredAndroidBuild,
+    scope: 'android_first_release',
+    status,
+    statusLabel: ready ? 'Android 正式 Push 已验收' : status === 'blocked' ? 'Push 配置未就绪' : '等待 Android 真机验收',
+    ticketVerifiedDeviceCount: ticketVerifiedDevices.length,
+    note: 'Expo receipt 证明推送服务已交付至 FCM/APNs，不等同于用户实际看到或点击；App 展示与点击继续由 notification.impression / notification.open 回传。',
+  };
+}
+
 function systemNotificationCampaignStats(campaignId, deliveredCount = 0) {
   const id = String(campaignId || '');
   if (!id) {
@@ -22310,64 +22444,69 @@ function adminSystemNotifications() {
   const totalPushReceiptPendingCount = pushReceiptPendingCount + businessPushReceiptPendingCount;
   const totalPushSentCount = pushSentCount + businessPushSentCount;
   const readCount = sentCampaigns.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
+  const productionAcceptance = adminPushProductionAcceptance(devices);
+  const summary = {
+    activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
+    approvalRequired: notificationApprovalRequired(),
+    audiencePackages: audiencePackages.length,
+    businessPushAttempted: businessPushAttemptedCount,
+    businessPushDeliveries: businessPushDeliveryRows.length,
+    businessPushFailed: businessPushFailedCount,
+    businessPushReceiptAttempted: businessPushReceiptAttemptedCount,
+    businessPushReceiptFailed: businessPushReceiptFailedCount,
+    businessPushReceiptOk: businessPushReceiptOkCount,
+    businessPushReceiptPending: businessPushReceiptPendingCount,
+    businessPushSent: businessPushSentCount,
+    campaignPushAttempted: pushAttemptedCount,
+    campaignPushFailed: pushFailedCount,
+    campaignPushReceiptAttempted: pushReceiptAttemptedCount,
+    campaignPushReceiptFailed: pushReceiptFailedCount,
+    campaignPushReceiptOk: pushReceiptOkCount,
+    campaignPushReceiptPending: pushReceiptPendingCount,
+    campaignPushSent: pushSentCount,
+    campaigns: campaigns.length,
+    delivered: deliveredCount,
+    devices: tokenDevices.length,
+    drafts: campaigns.filter((item) => item.status === 'draft').length,
+    impressionRate: analyticsPercent(impressionCount, deliveredCount),
+    impressions: impressionCount,
+    openRate: analyticsPercent(openCount, deliveredCount),
+    opens: openCount,
+    productionAcceptanceReady: productionAcceptance.ready,
+    productionAcceptanceStatus: productionAcceptance.status,
+    pushAttempted: totalPushAttemptedCount,
+    pushEnabled: EXPO_PUSH_ENABLED,
+    pushFailed: totalPushFailedCount,
+    pushProvider: EXPO_PUSH_ENABLED ? 'expo' : 'disabled',
+    pushReceiptAttempted: totalPushReceiptAttemptedCount,
+    pushReceiptEnabled: EXPO_PUSH_RECEIPTS_ENABLED,
+    pushReceiptFailed: totalPushReceiptFailedCount,
+    pushReceiptOk: totalPushReceiptOkCount,
+    pushReceiptPending: totalPushReceiptPendingCount,
+    pushReceiptSuccessRate: analyticsPercent(totalPushReceiptOkCount, totalPushReceiptAttemptedCount),
+    pushSent: totalPushSentCount,
+    pushSuccessRate: analyticsPercent(totalPushSentCount, totalPushAttemptedCount),
+    registrationAttempts: devices.reduce((sum, item) => sum + Number(item.attemptCount || 0), 0),
+    registrationFailures: registrationFailures.length,
+    registrationNativeConfigFailures: registrationFailures.filter((item) => item.registrationFailureCode === 'native_config_missing').length,
+    registrationObservedDevices: devices.length,
+    registeredDevices: tokenDevices.filter((item) => item.enabled).length,
+    readRate: analyticsPercent(readCount, deliveredCount),
+    reads: readCount,
+    expiredApprovals: campaigns.filter((item) => item.status === 'expired').length,
+    pendingApprovals: campaigns.filter((item) => item.status === 'pending_approval').length,
+    rejectedApprovals: campaigns.filter((item) => item.status === 'rejected').length,
+    scheduled: campaigns.filter((item) => item.status === 'scheduled').length,
+    users: users.length,
+  };
   return {
     campaigns,
     audiencePackages,
     businessPushDeliveries,
     devices: devices.slice(0, 200),
+    productionAcceptance,
     rateLimit: notificationRateLimitSnapshot(),
-    summary: {
-      activeToday: users.filter((user) => Date.now() - Number(user.lastSeenAt || 0) < 24 * 60 * 60 * 1000).length,
-      approvalRequired: notificationApprovalRequired(),
-      audiencePackages: audiencePackages.length,
-      businessPushAttempted: businessPushAttemptedCount,
-      businessPushDeliveries: businessPushDeliveryRows.length,
-      businessPushFailed: businessPushFailedCount,
-      businessPushReceiptAttempted: businessPushReceiptAttemptedCount,
-      businessPushReceiptFailed: businessPushReceiptFailedCount,
-      businessPushReceiptOk: businessPushReceiptOkCount,
-      businessPushReceiptPending: businessPushReceiptPendingCount,
-      businessPushSent: businessPushSentCount,
-      campaignPushAttempted: pushAttemptedCount,
-      campaignPushFailed: pushFailedCount,
-      campaignPushReceiptAttempted: pushReceiptAttemptedCount,
-      campaignPushReceiptFailed: pushReceiptFailedCount,
-      campaignPushReceiptOk: pushReceiptOkCount,
-      campaignPushReceiptPending: pushReceiptPendingCount,
-      campaignPushSent: pushSentCount,
-      campaigns: campaigns.length,
-      delivered: deliveredCount,
-      devices: tokenDevices.length,
-      drafts: campaigns.filter((item) => item.status === 'draft').length,
-      impressionRate: analyticsPercent(impressionCount, deliveredCount),
-      impressions: impressionCount,
-      openRate: analyticsPercent(openCount, deliveredCount),
-      opens: openCount,
-      pushAttempted: totalPushAttemptedCount,
-      pushEnabled: EXPO_PUSH_ENABLED,
-      pushFailed: totalPushFailedCount,
-      pushProvider: EXPO_PUSH_ENABLED ? 'expo' : 'disabled',
-      pushReceiptAttempted: totalPushReceiptAttemptedCount,
-      pushReceiptEnabled: EXPO_PUSH_RECEIPTS_ENABLED,
-      pushReceiptFailed: totalPushReceiptFailedCount,
-      pushReceiptOk: totalPushReceiptOkCount,
-      pushReceiptPending: totalPushReceiptPendingCount,
-      pushReceiptSuccessRate: analyticsPercent(totalPushReceiptOkCount, totalPushReceiptAttemptedCount),
-      pushSent: totalPushSentCount,
-      pushSuccessRate: analyticsPercent(totalPushSentCount, totalPushAttemptedCount),
-      registrationAttempts: devices.reduce((sum, item) => sum + Number(item.attemptCount || 0), 0),
-      registrationFailures: registrationFailures.length,
-      registrationNativeConfigFailures: registrationFailures.filter((item) => item.registrationFailureCode === 'native_config_missing').length,
-      registrationObservedDevices: devices.length,
-      registeredDevices: tokenDevices.filter((item) => item.enabled).length,
-      readRate: analyticsPercent(readCount, deliveredCount),
-      reads: readCount,
-      expiredApprovals: campaigns.filter((item) => item.status === 'expired').length,
-      pendingApprovals: campaigns.filter((item) => item.status === 'pending_approval').length,
-      rejectedApprovals: campaigns.filter((item) => item.status === 'rejected').length,
-      scheduled: campaigns.filter((item) => item.status === 'scheduled').length,
-      users: users.length,
-    },
+    summary,
     templates: adminNotificationTemplates(),
   };
 }
@@ -28483,11 +28622,13 @@ async function adminSystemHealth() {
   const petDeletions = petDeletionOperationsSummary();
   const seedFixturePlaceCount = (state.places || []).filter(isSeedFixturePlace).length;
   const unlocatedRuntimePlaceCount = runtimePlaceCatalog().filter((place) => !placeCoordinates(place)).length;
-  const notifications = adminSystemNotifications().summary;
+  const notificationStatus = adminSystemNotifications();
+  const notifications = notificationStatus.summary;
   const pushDevices = adminPushDevices();
   const activePushDeviceCount = pushDevices.filter((device) => device.enabled).length;
   const pushRegistrationFailureCount = pushDevices.filter((device) => device.registrationStatus === 'failed').length;
   const pushNativeConfigFailureCount = pushDevices.filter((device) => device.registrationFailureCode === 'native_config_missing').length;
+  const pushAcceptance = notificationStatus.productionAcceptance || adminPushProductionAcceptance(pushDevices);
   const appEvents = adminAppEvents({ limit: ADMIN_EXPORT_ROW_LIMIT }).summary;
   const runtimeErrors = appRuntimeErrorSummary();
   const alerts = adminOperationalAlerts({ limit: 12 });
@@ -28627,27 +28768,13 @@ async function adminSystemHealth() {
       `lastDeletedAt=${petDeletions.lastDeletedAt || '-'} queue=${petDeletions.cleanupPending}`,
     ),
     adminCheckStatus(
-      !EXPO_PUSH_ENABLED || !EXPO_PUSH_RECEIPTS_ENABLED || activePushDeviceCount === 0 || Number(notifications.pushReceiptOk || 0) === 0 || Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0 || pushRegistrationFailureCount > 0
-        ? 'warn'
-        : 'ok',
+      pushAcceptance.ready ? 'ok' : 'warn',
       'expo_push',
       'Expo Push 与回执',
-      pushNativeConfigFailureCount > 0
-        ? `${pushNativeConfigFailureCount} 台设备报告安装包缺少 Firebase 原生配置，需结合发布构建校验核实并重新发布 APK`
-        : !EXPO_PUSH_ENABLED
-        ? 'Expo Push 未启用，当前只有 App 内站内通知'
-        : !EXPO_PUSH_RECEIPTS_ENABLED
-          ? 'Expo Push 已启用，但 receipt 轮询未启用'
-          : activePushDeviceCount === 0
-            ? pushRegistrationFailureCount > 0
-              ? `Expo Push 与 receipt 轮询已启用，但 ${pushRegistrationFailureCount} 台设备登记失败，尚无有效真机 token`
-              : 'Expo Push 与 receipt 轮询已启用，尚无真机设备 token 登记'
-            : Number(notifications.pushFailed || 0) > 0 || Number(notifications.pushReceiptFailed || 0) > 0
-              ? `已有 ${activePushDeviceCount} 台有效设备；ticket 失败 ${notifications.pushFailed || 0}，receipt 失败 ${notifications.pushReceiptFailed || 0}`
-              : Number(notifications.pushReceiptOk || 0) === 0
-                ? `已有 ${activePushDeviceCount} 台有效设备，等待首个成功 receipt 完成生产验收`
-                : `已有 ${activePushDeviceCount} 台有效设备，成功 receipt ${notifications.pushReceiptOk || 0} 条`,
-      `provider=${EXPO_PUSH_ENABLED ? 'expo' : 'disabled'} receipts=${EXPO_PUSH_RECEIPTS_ENABLED ? 'enabled' : 'disabled'} devices=${activePushDeviceCount} registrationAttempts=${notifications.registrationAttempts || 0} registrationFailures=${pushRegistrationFailureCount} pushAttempted=${notifications.pushAttempted || 0}`,
+      pushAcceptance.ready
+        ? `Android build ${pushAcceptance.requiredAndroidBuild} 已由 ${pushAcceptance.acceptedDeviceCount} 台设备完成登记、Expo ticket 与 receipt 同设备全链路验收`
+        : `${pushAcceptance.statusLabel}：${pushAcceptance.missing.join('、') || '等待验收证据'}${pushNativeConfigFailureCount ? `；历史/当前 Firebase 原生配置失败 ${pushNativeConfigFailureCount} 台` : ''}`,
+      `scope=${pushAcceptance.scope} provider=${pushAcceptance.provider} build=${pushAcceptance.requiredAndroidBuild} devices=${activePushDeviceCount} accepted=${pushAcceptance.acceptedDeviceCount} recentRegistrationFailures=${pushAcceptance.recentRegistrationFailureCount} historicalRegistrationFailures=${pushRegistrationFailureCount} pushAttempted=${notifications.pushAttempted || 0}`,
     ),
     adminCheckStatus(
       runtimeErrors.occurrences > 0 ? 'warn' : 'ok',
@@ -28779,6 +28906,7 @@ async function adminSystemHealth() {
     },
     alertWebhook,
     auditArchive,
+    pushAcceptance,
     publicApiProbe,
     publicApiExternalProof,
     mediaProbe,
@@ -30186,6 +30314,7 @@ function adminReadinessModules(context) {
   const aiRuntime = aiRuntimeReadiness();
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
   const auditArchiveReady = health?.auditArchive?.status === 'healthy' || health?.auditArchive?.status === 'empty';
+  const pushAcceptance = health?.pushAcceptance || adminPushProductionAcceptance();
   return [
     {
       key: 'dashboard',
@@ -30289,10 +30418,12 @@ function adminReadinessModules(context) {
       key: 'notifications',
       module: '通知运营',
       group: '触达',
-      status: 'partial',
-      evidence: '支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控、Expo Push ticket/receipt 和展示/已读/点击批次效果统计；点赞、评论、招呼、私信、健康提醒、客服回复和审核结果等业务通知也会自动 Push，并在后台单独追踪投递与回执。',
+      status: pushAcceptance.ready ? 'ready' : 'partial',
+      evidence: `支持系统通知、草稿、待审批、预约、撤回、模板、通知人群包、设备概览、actionRoute、对象深链、发送审批、频控、Expo Push ticket/receipt 和展示/已读/点击批次效果统计；点赞、评论、招呼、私信、健康提醒、客服回复和审核结果等业务通知也会自动 Push，并在后台单独追踪投递与回执。Android 正式 Push 验收：${pushAcceptance.statusLabel}。`,
       mobileLinkage: '系统与业务通知都会写入 App 通知中心并同步 Push，支持跳首页、发现、地图、宠友圈主页、我的、安全中心、设置、反馈进度及具体业务对象；移动端通知页会上报 notification.impression，点击会上报 notification.open。',
-      nextStep: '生产期补 Android 厂商 Push/APNs 专项优化、OS 级展示回执、站外审批提醒和值守 SOP；强制通知审批已进入高风险会签和 /admin/approvals/pending 值守队列。',
+      nextStep: pushAcceptance.ready
+        ? '持续监控登记、ticket、receipt、notification.impression/open 和失效 token；未来发布 iOS 时单独完成 APNs 真机验收，Android 厂商通道作为到达率优化。'
+        : `使用 build ${pushAcceptance.requiredAndroidBuild} 或更高版本 Android 正式包完成真机通知授权、设备登记和一条测试 Push，直至后台同时取得成功 ticket 与 receipt；当前缺：${pushAcceptance.missing.join('、') || '真机证据'}。`,
     },
     {
       key: 'config',
@@ -30407,6 +30538,7 @@ function adminReadinessGaps(context) {
   const petDeletions = health?.petDeletions || petDeletionOperationsSummary();
   const petDeletionReady = Number(petDeletions.cleanupFailed || 0) === 0 && petDeletions.cleanupBlocked !== true;
   const accountLifecycleReady = accountDeletionReady && petDeletionReady;
+  const pushAcceptance = health?.pushAcceptance || adminPushProductionAcceptance();
   const highRiskPolicy = highRiskApprovalPolicy();
   const highRiskPolicyReady = Boolean(highRiskPolicy.requireDifferentAdmin && Number(highRiskPolicy.requiredApprovals || 0) >= 2);
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
@@ -30591,14 +30723,14 @@ function adminReadinessGaps(context) {
       key: 'push_provider',
       area: '通知触达',
       severity: 'P1',
-      status: 'partial',
-      issue: EXPO_PUSH_ENABLED
-        ? '系统群发及点赞、评论、招呼、私信、健康提醒、客服回复、审核结果等业务通知均已接 Expo Push 下发、ticket 记录、receipt 轮询、失效 token 标记和后台投递追踪；系统群发同时支持 App 内展示/点击回传、高风险会签和待审批值守队列。仍缺 Android 厂商 Push/APNs 专项优化、OS 级展示回执和站外审批提醒。'
-        : '当前以站内通知为主，Expo Push 开关未启用；后台待审批值守队列已接，厂商 Push、送达回执和站外审批提醒未完成。',
-      requiredAction: EXPO_PUSH_ENABLED
-        ? '继续补厂商通道专项配置、OS 级展示回执、失败告警和生产审批值守通知策略。'
-        : '配置 EXPO_PUSH_ENABLED=true 并验证 Expo Push；再接 receipt、失败重试、Android 厂商 Push、iOS APNs 和生产审批值守通知。',
-      evidence: '通知运营页设备 token 概览 / systemNotifications.pushStatus / businessPushDeliveries / pushReceiptStatus / notification.impression / notification.open',
+      status: pushAcceptance.ready ? 'ready' : pushAcceptance.status === 'blocked' ? 'blocked' : 'partial',
+      issue: pushAcceptance.ready
+        ? `Android 首发 Push 已通过 build ${pushAcceptance.requiredAndroidBuild} 同设备全链路验收：原生 token 登记、Expo ticket 和 receipt 均有近 ${pushAcceptance.evidenceMaxAgeDays} 天成功证据；历史失效 token 保留审计但不永久阻塞上线。`
+        : `Expo Push 代码链路已覆盖系统群发和业务通知，但 Android 正式验收尚未闭环：${pushAcceptance.missing.join('、') || pushAcceptance.statusLabel}。`,
+      requiredAction: pushAcceptance.ready
+        ? '持续监控失败率和证据时效；未来发布 iOS 时另做 APNs 真机验收，Android 厂商 Push 按到达率数据决定是否接入。'
+        : `配置并使用 build ${pushAcceptance.requiredAndroidBuild} 或更高 Android 正式包完成通知授权、设备登记和测试 Push，取得同设备成功 ticket + receipt；不把 receipt 误报为用户已展示/已点击。`,
+      evidence: '通知运营页 productionAcceptance / GET /admin/notifications/production-acceptance / pushDevices.lastPushStatus / lastPushReceiptStatus / notification.impression / notification.open',
     },
     {
       key: 'audit_archive',
@@ -37183,6 +37315,11 @@ async function handleAdminRequest(req, res, pathname, url, body) {
 
   if (req.method === 'GET' && pathname === '/admin/notifications') {
     ok(res, adminSystemNotifications());
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/notifications/production-acceptance') {
+    ok(res, adminPushProductionAcceptance());
     return true;
   }
 

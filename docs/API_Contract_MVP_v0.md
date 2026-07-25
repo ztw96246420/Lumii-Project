@@ -1387,6 +1387,13 @@ type PushDevice = {
 
 上报当前安装实例的推送登记阶段，用于区分系统权限、FCM token、Expo token 和业务后端登记失败。客户端只允许上报枚举失败码，不上传原生异常原文或完整 token。
 
+后台生产验收接口：
+
+- `GET /admin/notifications` 会同时返回 `productionAcceptance`，并在 `summary` 中返回 `productionAcceptanceReady` 与 `productionAcceptanceStatus`。
+- `GET /admin/notifications/production-acceptance` 返回 Android 首发 Push 的独立验收结果。验收要求同一台当前/最新构建设备在证据有效期内完成登记、成功 Expo ticket 和成功 receipt，且当前构建没有近期未恢复的登记失败。
+- `LUMII_PUSH_ACCEPTANCE_MIN_ANDROID_BUILD` 应在正式发版时设置为本次 APK 的 `versionCode`；默认完整证据有效期 30 天、登记失败窗口 24 小时。
+- Expo receipt 代表推送服务交付至 FCM/APNs，不代表用户已看到或点击；App 展示/点击分别以 `notification.impression`、`notification.open` 为准。
+
 Request:
 
 ```ts

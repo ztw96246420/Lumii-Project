@@ -9159,6 +9159,7 @@ function renderAiPromptVersionLibrary(data = {}, gptImage2 = {}) {
 async function renderNotifications(force) {
   const data = await load('notifications', '/admin/notifications', force);
   const summary = data.summary || {};
+  const productionAcceptance = data.productionAcceptance || {};
   const audiencePackages = data.audiencePackages || [];
   const businessPushDeliveries = data.businessPushDeliveries || [];
   const campaigns = data.campaigns || [];
@@ -9177,6 +9178,7 @@ async function renderNotifications(force) {
       ${metric('登记异常', summary.registrationFailures || 0, `${numberText(summary.registrationObservedDevices || 0)} 台已观测 · ${numberText(summary.registrationAttempts || 0)} 次尝试`, '记录授权后从 FCM token、Expo token 到业务后端登记的完整阶段；客户端报告缺少原生配置时需结合发布构建校验核实。')}
       ${metric('Push 下发', numberText(summary.pushSent || 0), `${numberText(summary.pushAttempted || 0)} 尝试 · ${percentText(summary.pushSuccessRate || 0)}`, `统计系统群发和业务通知的 Expo Push ticket 结果；业务 ${numberText(summary.businessPushSent || 0)}/${numberText(summary.businessPushAttempted || 0)}，群发 ${numberText(summary.campaignPushSent || 0)}/${numberText(summary.campaignPushAttempted || 0)}。`)}
       ${metric('Push 回执', numberText(summary.pushReceiptOk || 0), `${numberText(summary.pushReceiptAttempted || 0)} 已核验 · ${numberText(summary.pushReceiptPending || 0)} 待查 · ${percentText(summary.pushReceiptSuccessRate || 0)}`, '统计 Expo 向 FCM/APNs 交付后的 receipt 结果；仍不等同于用户实际点击。')}
+      ${metric('生产 Push 验收', productionAcceptance.statusLabel || '等待验收', `${numberText(productionAcceptance.acceptedDeviceCount || 0)} 台全链路 · build ${numberText(productionAcceptance.requiredAndroidBuild || 0)}`, productionAcceptance.ready ? `同一台 Android 正式构建设备已完成原生登记、Expo ticket 与 receipt；最近证据 ${productionAcceptance.latestProofAt ? formatTime(productionAcceptance.latestProofAt) : '-'}` : `当前缺：${escapeHtml((productionAcceptance.missing || []).join('、') || 'Android 真机完整链路证据')}`)}
       ${metric('人群包', summary.audiencePackages || audiencePackages.length, '灰度触达', '保存测试手机号、灰度用户和补偿用户，发送时按当前注册用户重新计算可触达范围。')}
       ${metric('待处理', (summary.drafts || 0) + (summary.scheduled || 0) + (summary.pendingApprovals || 0), `${summary.drafts || 0} 草稿 · ${summary.pendingApprovals || 0} 审批 · ${summary.scheduled || 0} 预约`, '草稿和待审批通知不会触达用户；审批通过后才会写入 App 通知中心或转为预约。')}
       ${metric('审批保护', approvalRequired ? '已开启' : '未开启', approvalRequired ? '直接发送会被拦截' : '可直接发送', '开启后，立即发送和预约发送必须先提交审批，审批通过才触达移动端。')}
