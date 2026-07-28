@@ -36,7 +36,7 @@ LUMII_ADMIN_AUDIT_COS_STALE_MS=3600000
 - `POST /admin/audit-archives/run`：需要 `audit.archive`，原因至少 4 个字。
 - `GET /admin/audit-logs` 同时返回 `archive` 状态。
 - 系统健康检查项：`audit_cos_archive`。
-- 成功归档后出现新日志时，底层状态仍显示 `pending`，但只要最近成功归档未超过“自动归档周期 + 小幅调度宽限”，`operationallyHealthy=true`，系统健康与上线台账继续视为正常；超过周期仍未归档才降级，避免每次后台登录造成健康状态抖动。
+- 成功归档后出现新日志时，底层状态仍显示 `pending`。正常自动归档周期（含服务启动后的首次归档宽限）内，系统健康保持 `ok`；漏掉一个周期后健康项降为 `warn`，但最近成功归档尚未达到 stale 阈值时 `operationallyHealthy=true`、上线台账不误判为未落地；达到 stale 阈值才转为阻断，避免每次后台登录或服务重启造成状态抖动。
 - 失败、超时或 COS 配置不完整时，运营告警键：`audit_cos_archive`。
 - 上线台账缺口：`audit_archive`。
 

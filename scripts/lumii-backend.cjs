@@ -9175,14 +9175,18 @@ function adminAuditArchiveStatus() {
   else if (ADMIN_AUDIT_COS_ENABLED && changedSinceLastArchive) status = 'pending';
   else if (ADMIN_AUDIT_COS_ENABLED) status = 'healthy';
   const pendingGraceMs = Math.max(60 * 1000, Math.min(5 * 60 * 1000, Math.floor(ADMIN_AUDIT_COS_INTERVAL_MS * 0.2)));
+  const processUptimeMs = Math.max(0, process.uptime() * 1000);
+  const startupArchivePending = status === 'pending' && processUptimeMs <= ADMIN_AUDIT_COS_INITIAL_DELAY_MS + pendingGraceMs;
   const pendingWithinSchedule = status === 'pending'
     && Boolean(latestSuccess)
-    && Number.isFinite(lastSuccessAgeMs)
-    && lastSuccessAgeMs <= ADMIN_AUDIT_COS_INTERVAL_MS + pendingGraceMs;
-  const operationallyHealthy = status === 'healthy' || status === 'empty' || pendingWithinSchedule;
-  const nextScheduledAt = latestSuccess && Number.isFinite(latestSuccessMs)
-    ? new Date(latestSuccessMs + ADMIN_AUDIT_COS_INTERVAL_MS).toISOString()
-    : '';
+    && !stale
+    && (startupArchivePending || (Number.isFinite(lastSuccessAgeMs) && lastSuccessAgeMs <= ADMIN_AUDIT_COS_INTERVAL_MS + pendingGraceMs));
+  const operationallyHealthy = status === 'healthy' || status === 'empty' || (status === 'pending' && Boolean(latestSuccess) && !stale);
+  const processStartedAtMs = now - processUptimeMs;
+  const nextScheduledMs = startupArchivePending
+    ? processStartedAtMs + ADMIN_AUDIT_COS_INITIAL_DELAY_MS
+    : processStartedAtMs + (Math.floor(processUptimeMs / ADMIN_AUDIT_COS_INTERVAL_MS) + 1) * ADMIN_AUDIT_COS_INTERVAL_MS;
+  const nextScheduledAt = ADMIN_AUDIT_COS_ENABLED ? new Date(nextScheduledMs).toISOString() : '';
   return {
     archiveCount: archives.filter((item) => item.status === 'archived').length,
     changedSinceLastArchive,
@@ -9202,6 +9206,7 @@ function adminAuditArchiveStatus() {
     prefix: ADMIN_AUDIT_COS_PREFIX,
     provider: ADMIN_AUDIT_COS_ENABLED ? 'tencent-cos' : '',
     staleAfterMinutes: Math.round(ADMIN_AUDIT_COS_STALE_MS / 60_000),
+    startupArchivePending,
     status,
     statusLabel: {
       disabled: 'COS 归档未启用',
@@ -28827,7 +28832,11 @@ async function adminSystemHealth() {
     ),
     adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态快照备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.lastMirrorError ? `JSON 回滚镜像异常：${stateBackups.lastMirrorError}` : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(
-      auditArchive.operationallyHealthy ? 'ok' : auditArchive.status === 'failed' || auditArchive.status === 'stale' ? 'bad' : 'warn',
+      auditArchive.status === 'healthy' || auditArchive.status === 'empty' || auditArchive.pendingWithinSchedule
+        ? 'ok'
+        : auditArchive.status === 'failed' || auditArchive.status === 'stale'
+          ? 'bad'
+          : 'warn',
       'audit_cos_archive',
       '审计日志 COS 异地归档',
       auditArchive.status === 'healthy'
@@ -28835,7 +28844,7 @@ async function adminSystemHealth() {
         : auditArchive.status === 'pending'
           ? auditArchive.pendingWithinSchedule
             ? `审计 journal 有新内容，仍在 ${auditArchive.intervalMinutes} 分钟自动归档周期内`
-            : '审计 journal 有新内容，但已超出正常自动归档周期'
+            : `审计 journal 有新内容，已超出单次归档周期但未达到 ${auditArchive.staleAfterMinutes} 分钟阻断阈值`
           : auditArchive.status === 'empty'
             ? '归档已启用，等待首条审计日志'
             : auditArchive.status === 'disabled'

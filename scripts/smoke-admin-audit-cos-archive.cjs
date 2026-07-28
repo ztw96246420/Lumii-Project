@@ -142,7 +142,7 @@ async function startBackend(port, cosEndpoint) {
       LUMII_ADMIN_AUDIT_COS_INITIAL_DELAY_MS: '60000',
       LUMII_ADMIN_AUDIT_COS_INTERVAL_MS: '60000',
       LUMII_ADMIN_AUDIT_COS_PREFIX: 'admin-audit-smoke',
-      LUMII_ADMIN_AUDIT_COS_STALE_MS: '120000',
+      LUMII_ADMIN_AUDIT_COS_STALE_MS: '300000',
       LUMII_ADMIN_AUDIT_JOURNAL_PATH: journalPath,
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
@@ -286,17 +286,26 @@ async function main() {
     assert.equal(secondManifest.previousArchive.archiveId, first.data.archive.id);
     assert.equal(secondManifest.previousArchive.journalSha256, first.data.archive.journalSha256);
 
-    await loginAdmin();
-    const scheduledPending = await request('/admin/audit-archives', { token: adminToken });
+    await stopBackend();
+    const persistedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const persistedLatestSuccess = persistedState.adminAuditArchives.find((item) => item.id === second.data.archive.id);
+    assert.ok(persistedLatestSuccess, 'missing persisted latest archive');
+    persistedLatestSuccess.archivedAt = new Date(Date.now() - 150_000).toISOString();
+    fs.writeFileSync(statePath, `${JSON.stringify(persistedState, null, 2)}\n`);
+    await startBackend(await getFreePort(), cosEndpoint);
+
+    const startupToken = await loginAdmin();
+    const scheduledPending = await request('/admin/audit-archives', { token: startupToken });
     assert.equal(scheduledPending.data.status, 'pending');
+    assert.equal(scheduledPending.data.startupArchivePending, true);
     assert.equal(scheduledPending.data.pendingWithinSchedule, true);
     assert.equal(scheduledPending.data.operationallyHealthy, true);
     assert.ok(scheduledPending.data.nextScheduledAt);
-    const healthy = await request('/admin/system/health', { token: adminToken });
+    const healthy = await request('/admin/system/health', { token: startupToken });
     assert.equal(healthy.data.checks.find((item) => item.key === 'audit_cos_archive')?.status, 'ok');
-    const readiness = await request('/admin/launch/readiness', { token: adminToken });
+    const readiness = await request('/admin/launch/readiness', { token: startupToken });
     assert.equal(readiness.data.gaps.find((item) => item.key === 'audit_archive')?.status, 'ready');
-    const audit = await request('/admin/audit-logs?action=audit.archive.cos.attempt', { token: adminToken });
+    const audit = await request('/admin/audit-logs?action=audit.archive.cos.attempt', { token: startupToken });
     assert.equal(audit.data.items.filter((item) => item.action === 'audit.archive.cos.attempt').length, 2);
 
     await loginAdmin();
@@ -305,14 +314,14 @@ async function main() {
       body: { reason: 'Smoke archive provider failure must surface operational alert' },
       expectedStatus: 502,
       method: 'POST',
-      token: adminToken,
+      token: startupToken,
     });
-    const failedStatus = await request('/admin/audit-archives', { token: adminToken });
+    const failedStatus = await request('/admin/audit-archives', { token: startupToken });
     assert.equal(failedStatus.data.status, 'failed');
     assert.match(failedStatus.data.lastError, /smoke COS failure/u);
-    const failedHealth = await request('/admin/system/health', { token: adminToken });
+    const failedHealth = await request('/admin/system/health', { token: startupToken });
     assert.equal(failedHealth.data.checks.find((item) => item.key === 'audit_cos_archive')?.status, 'bad');
-    const alerts = await request('/admin/dashboard/alerts', { token: adminToken });
+    const alerts = await request('/admin/dashboard/alerts', { token: startupToken });
     assert.ok(alerts.data.items.some((item) => item.key === 'audit_cos_archive'));
 
     console.log('admin audit COS archive smoke passed');
