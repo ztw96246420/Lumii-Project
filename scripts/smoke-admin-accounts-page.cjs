@@ -257,6 +257,9 @@ async function main() {
     await page.locator('#loginBtn').click();
     await page.locator('#nav button[data-route="adminAccounts"]').click();
     await page.locator('button[data-action="admin-security-package-generate"]').waitFor({ timeout: 30_000 });
+    await page.getByText('后台登录设备', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.locator('button[data-action="admin-session-logout-current"]').waitFor({ timeout: 30_000 });
+    await page.locator('button[data-action="admin-session-revoke-others"]').waitFor({ timeout: 30_000 });
     await page.locator(`button[data-action="admin-account-offboard"][data-id="${activeAccount.data.account.id}"]`).waitFor({ timeout: 30_000 });
     await page.getByText('已离职停用；为保留审计边界，该账号不可恢复，请按需新建账号。').waitFor({ timeout: 30_000 });
     await page.getByText('离职停用', { exact: true }).first().waitFor({ timeout: 30_000 });

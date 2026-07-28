@@ -258,11 +258,12 @@ async function main() {
     });
     assert.equal(deniedSecurityPackage.data.permission, 'admin.manage_roles');
 
-    await request(`/admin/accounts/${encodeURIComponent(account.id)}/disable`, {
+    const disabled = await request(`/admin/accounts/${encodeURIComponent(account.id)}/disable`, {
       body: { reason: 'smoke 禁用后台管理员账号' },
       method: 'POST',
       token: envToken,
     });
+    assert.ok(disabled.data.revokedSessions >= 1, 'disabling an admin account should revoke its login sessions');
     await request('/admin/me', { expectedStatus: 401, token: opsToken });
     const disabledLogin = await request('/admin/auth/login', {
       body: { password: 'OpsAdmin2026', username: 'ops_admin_01' },
@@ -291,21 +292,23 @@ async function main() {
     assert.equal(envAccount.status, 'active');
     assert.equal(lockedAccounts.data.loginSecurity.lockedAccountCount, 1);
 
-    await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-password`, {
+    const passwordReset = await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-password`, {
       body: { password: 'OpsAdmin2027', reason: 'smoke 重置后台管理员密码' },
       method: 'POST',
       token: envToken,
     });
+    assert.ok(passwordReset.data.revokedSessions >= 1, 'password reset should revoke active admin login sessions');
     await request('/admin/me', { expectedStatus: 401, token: enabledToken });
     await loginAdmin('ops_admin_01', 'OpsAdmin2026', 401);
     const resetToken = await loginAdmin('ops_admin_01', 'OpsAdmin2027', 200, { mfaCode: totpCodeForSecret(SUPPORT_MFA_SECRET) });
     assert.ok(resetToken, 'new password should login');
     await delay(10);
-    await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-mfa`, {
+    const mfaReset = await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-mfa`, {
       body: { mfaSecret: '', reason: 'smoke disable admin account MFA' },
       method: 'POST',
       token: envToken,
     });
+    assert.ok(mfaReset.data.revokedSessions >= 1, 'MFA reset should revoke active admin login sessions');
     await request('/admin/me', { expectedStatus: 401, token: resetToken });
     const noMfaToken = await loginAdmin('ops_admin_01', 'OpsAdmin2027');
     assert.ok(noMfaToken, 'account should login without MFA after reset-mfa disables it');
@@ -347,6 +350,7 @@ async function main() {
     });
     assert.equal(offboarded.data.account.status, 'offboarded');
     assert.equal(offboarded.data.account.mfaEnabled, false);
+    assert.ok(offboarded.data.revokedSessions >= 1, 'offboarding should revoke active admin login sessions');
     assert.ok(offboarded.data.account.offboardedAt);
     assert.equal(offboarded.data.account.offboardedBy, 'admin');
     await request('/admin/me', { expectedStatus: 401, token: noMfaToken });

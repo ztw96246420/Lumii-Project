@@ -244,6 +244,7 @@ if (RUNTIME_ENV === 'production' && (ADMIN_PASSWORD === 'LumiiAdmin@2026' || ADM
   throw new Error('Production admin password must be at least 16 characters and must not use the repository default');
 }
 const ADMIN_TOKEN_TTL_MS = Number(process.env.LUMII_ADMIN_TOKEN_TTL_MS || 12 * 60 * 60 * 1000);
+const ADMIN_LOGIN_SESSION_RETAIN = Math.max(20, Math.min(1000, Number(process.env.LUMII_ADMIN_LOGIN_SESSION_RETAIN || '200') || 200));
 const ADMIN_LOGIN_MAX_ATTEMPTS = Math.max(1, Number(process.env.LUMII_ADMIN_LOGIN_MAX_ATTEMPTS || '5') || 5);
 const ADMIN_LOGIN_LOCK_MS = Math.max(60 * 1000, Number(process.env.LUMII_ADMIN_LOGIN_LOCK_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const ADMIN_IP_ALLOWLIST_RAW = process.env.LUMII_ADMIN_IP_ALLOWLIST || process.env.LUMII_ADMIN_IP_WHITELIST || '';
@@ -1053,6 +1054,7 @@ function createInitialState() {
     adminAuditArchives: [],
     adminAuditLogs: [],
     adminAccounts: {},
+    adminLoginSessions: [],
     adminDataClearApprovals: [],
     adminExportApprovals: [],
     adminExportJobs: [],
@@ -6198,6 +6200,7 @@ function loadState() {
         ...(loadedState.adminLoginSecurity || {}),
       },
       adminAccounts: loadedState.adminAccounts && typeof loadedState.adminAccounts === 'object' && !Array.isArray(loadedState.adminAccounts) ? loadedState.adminAccounts : initialState.adminAccounts,
+      adminLoginSessions: Array.isArray(loadedState.adminLoginSessions) ? loadedState.adminLoginSessions : initialState.adminLoginSessions,
       adminAlertWebhookDeliveries: Array.isArray(loadedState.adminAlertWebhookDeliveries) ? loadedState.adminAlertWebhookDeliveries : initialState.adminAlertWebhookDeliveries,
       adminAuditArchives: Array.isArray(loadedState.adminAuditArchives) ? loadedState.adminAuditArchives : initialState.adminAuditArchives,
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
@@ -8943,23 +8946,237 @@ function adminAccountReason(value, fallback = '') {
   return { reason };
 }
 
-function createAdminToken(accountOrUsername) {
+function ensureAdminLoginSessions() {
+  if (!Array.isArray(state.adminLoginSessions)) state.adminLoginSessions = [];
+  return state.adminLoginSessions;
+}
+
+function adminLoginSessionStatus(session = {}, now = Date.now()) {
+  if (String(session.status || '') === 'revoked') return 'revoked';
+  const expiresAt = Date.parse(String(session.expiresAt || ''));
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return 'expired';
+  return 'active';
+}
+
+function pruneAdminLoginSessions(now = Date.now()) {
+  const sessions = ensureAdminLoginSessions()
+    .filter((session) => session && typeof session === 'object' && session.id && session.tokenJti)
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+  const active = sessions.filter((session) => adminLoginSessionStatus(session, now) === 'active').slice(0, ADMIN_LOGIN_SESSION_RETAIN);
+  const activeIds = new Set(active.map((session) => session.id));
+  const history = sessions
+    .filter((session) => !activeIds.has(session.id))
+    .slice(0, Math.max(0, ADMIN_LOGIN_SESSION_RETAIN - active.length));
+  state.adminLoginSessions = [...active, ...history]
+    .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+  return state.adminLoginSessions;
+}
+
+function adminLoginSessionByJti(jti) {
+  const tokenJti = String(jti || '').trim();
+  if (!tokenJti) return null;
+  return ensureAdminLoginSessions().find((session) => safeEqualText(session?.tokenJti || '', tokenJti)) || null;
+}
+
+function adminLoginDeviceInfo(userAgent = '') {
+  const value = String(userAgent || '').trim();
+  const lower = value.toLowerCase();
+  const browser = /edg\//i.test(value)
+    ? 'Microsoft Edge'
+    : /chrome\//i.test(value)
+      ? 'Chrome'
+      : /firefox\//i.test(value)
+        ? 'Firefox'
+        : /safari\//i.test(value)
+          ? 'Safari'
+          : /curl\//i.test(value)
+            ? 'cURL'
+            : /node/i.test(value)
+              ? 'Node.js'
+              : '其他客户端';
+  const platform = /android/.test(lower)
+    ? 'Android'
+    : /iphone|ipad|ios/.test(lower)
+      ? 'iOS'
+      : /windows/.test(lower)
+        ? 'Windows'
+        : /macintosh|mac os/.test(lower)
+          ? 'macOS'
+          : /linux/.test(lower)
+            ? 'Linux'
+            : '未知系统';
+  return {
+    browser,
+    deviceLabel: `${browser} · ${platform}`,
+    platform,
+  };
+}
+
+function publicAdminLoginSession(session = {}, currentSessionId = '') {
+  const device = adminLoginDeviceInfo(session.userAgent || session.lastUserAgent || '');
+  const status = adminLoginSessionStatus(session);
+  return {
+    accountId: session.accountId || '',
+    browser: device.browser,
+    canRevoke: status === 'active',
+    createdAt: session.createdAt || '',
+    current: Boolean(currentSessionId && safeEqualText(session.id || '', currentSessionId)),
+    deviceLabel: device.deviceLabel,
+    expiresAt: session.expiresAt || '',
+    id: session.id || '',
+    lastIp: session.lastIp || session.loginIp || '',
+    lastSeenAt: session.lastSeenAt || session.createdAt || '',
+    loginIp: session.loginIp || '',
+    platform: device.platform,
+    revokedAt: session.revokedAt || '',
+    revokedBy: session.revokedBy || '',
+    revokedReason: session.revokedReason || '',
+    status,
+    userAgent: session.userAgent || '',
+    username: session.username || '',
+  };
+}
+
+function adminLoginSessionMatchesAccount(session = {}, accountId = '', username = '') {
+  const normalizedAccountId = String(accountId || '').trim();
+  const normalizedUsername = normalizeAdminUsername(username);
+  return Boolean(
+    (normalizedAccountId && safeEqualText(session.accountId || '', normalizedAccountId))
+    || (normalizedUsername && safeEqualText(normalizeAdminUsername(session.username), normalizedUsername)),
+  );
+}
+
+function adminLoginSessionsForAccount(accountId = '', username = '', currentSessionId = '') {
+  return pruneAdminLoginSessions()
+    .filter((session) => adminLoginSessionMatchesAccount(session, accountId, username))
+    .map((session) => publicAdminLoginSession(session, currentSessionId));
+}
+
+function revokeAdminLoginSessionRecord(session, actor = {}, reason = '后台会话已撤销') {
+  if (!session || typeof session !== 'object') return false;
+  if (adminLoginSessionStatus(session) !== 'active') return false;
+  const now = new Date().toISOString();
+  session.status = 'revoked';
+  session.revokedAt = now;
+  session.revokedBy = actor.username || actor.displayName || 'system';
+  session.revokedIp = actor.ip || '';
+  session.revokedReason = String(reason || '后台会话已撤销').replace(/\s+/g, ' ').trim().slice(0, 240);
+  session.updatedAt = now;
+  return true;
+}
+
+function revokeAdminLoginSessionsForAccount(accountId, username, actor = {}, reason = '后台账号凭据已变更', options = {}) {
+  let revoked = 0;
+  ensureAdminLoginSessions().forEach((session) => {
+    if (!adminLoginSessionMatchesAccount(session, accountId, username)) return;
+    if (options.excludeSessionId && safeEqualText(session.id || '', options.excludeSessionId)) return;
+    if (revokeAdminLoginSessionRecord(session, actor, reason)) revoked += 1;
+  });
+  return revoked;
+}
+
+function adminLoginSessionsResponse(admin = {}) {
+  const sessions = adminLoginSessionsForAccount(admin.id, admin.username, admin.loginSessionId);
+  return {
+    sessions,
+    summary: {
+      active: sessions.filter((session) => session.status === 'active').length,
+      currentSessionId: admin.loginSessionId || '',
+      expired: sessions.filter((session) => session.status === 'expired').length,
+      revoked: sessions.filter((session) => session.status === 'revoked').length,
+      total: sessions.length,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function revokeOwnAdminLoginSession(admin = {}, sessionId = '', body = {}) {
+  const reasonResult = adminAccountReason(body.reason, '管理员主动撤销后台登录会话');
+  if (reasonResult.error) return reasonResult;
+  const session = ensureAdminLoginSessions().find((item) => safeEqualText(item?.id || '', sessionId)) || null;
+  if (!session || !adminLoginSessionMatchesAccount(session, admin.id, admin.username)) {
+    return { error: '后台登录会话不存在', statusCode: 404, code: 'ADMIN_LOGIN_SESSION_NOT_FOUND' };
+  }
+  const before = publicAdminLoginSession(session, admin.loginSessionId);
+  const revoked = revokeAdminLoginSessionRecord(session, admin, reasonResult.reason);
+  const after = publicAdminLoginSession(session, admin.loginSessionId);
+  if (revoked) {
+    writeAdminAudit(admin, 'admin.session.revoke', 'admin_login_session', session.id, before, after, reasonResult.reason);
+  }
+  return {
+    revoked,
+    session: after,
+    ...adminLoginSessionsResponse(admin),
+  };
+}
+
+function revokeOtherAdminLoginSessions(admin = {}, body = {}) {
+  const reasonResult = adminAccountReason(body.reason, '管理员退出其他后台登录设备');
+  if (reasonResult.error) return reasonResult;
+  const revoked = revokeAdminLoginSessionsForAccount(admin.id, admin.username, admin, reasonResult.reason, {
+    excludeSessionId: admin.loginSessionId,
+  });
+  if (revoked > 0) {
+    writeAdminAudit(admin, 'admin.session.revoke_others', 'admin_account', admin.id || admin.username, null, {
+      currentSessionId: admin.loginSessionId || '',
+      revokedSessions: revoked,
+    }, reasonResult.reason);
+  }
+  return {
+    revoked,
+    ...adminLoginSessionsResponse(admin),
+  };
+}
+
+function logoutAdminLoginSession(admin = {}) {
+  const session = admin.loginSessionId
+    ? ensureAdminLoginSessions().find((item) => safeEqualText(item?.id || '', admin.loginSessionId)) || null
+    : null;
+  const before = session ? publicAdminLoginSession(session, admin.loginSessionId) : null;
+  const revoked = session ? revokeAdminLoginSessionRecord(session, admin, '管理员主动退出后台') : false;
+  if (revoked) {
+    writeAdminAudit(admin, 'admin.session.logout', 'admin_login_session', session.id, before, publicAdminLoginSession(session, admin.loginSessionId), '管理员主动退出后台');
+  }
+  return { revoked, sessionId: admin.loginSessionId || '' };
+}
+
+function createAdminToken(accountOrUsername, context = {}) {
   const now = Date.now();
   const account = typeof accountOrUsername === 'string' ? adminAccountByUsername(accountOrUsername) : accountOrUsername;
   const username = account?.username || ADMIN_USERNAME;
   const roleIds = normalizeAdminRoleIds(account?.roleIds, ['admin']);
+  const accountId = account?.id || (safeEqualText(username, ADMIN_USERNAME) ? 'admin-env' : '');
+  const jti = crypto.randomBytes(12).toString('hex');
+  const expiresAt = now + ADMIN_TOKEN_TTL_MS;
   const payloadPart = base64UrlEncode(
     JSON.stringify({
-      adminId: account?.id || (safeEqualText(username, ADMIN_USERNAME) ? 'admin-env' : ''),
-      exp: now + ADMIN_TOKEN_TTL_MS,
+      adminId: accountId,
+      exp: expiresAt,
       iat: now,
-      jti: crypto.randomBytes(12).toString('hex'),
+      jti,
       role: 'admin',
       roleIds,
       username,
-      version: 2,
+      version: 3,
     }),
   );
+  const createdAt = new Date(now).toISOString();
+  ensureAdminLoginSessions().unshift({
+    accountId,
+    createdAt,
+    expiresAt: new Date(expiresAt).toISOString(),
+    id: `admin-session-${crypto.randomUUID()}`,
+    issuedAt: createdAt,
+    lastIp: context.ip || '',
+    lastSeenAt: createdAt,
+    loginIp: context.ip || '',
+    status: 'active',
+    tokenJti: jti,
+    updatedAt: createdAt,
+    userAgent: String(context.userAgent || '').slice(0, 180),
+    username,
+  });
+  pruneAdminLoginSessions(now);
   return `lumii-admin-v1.${payloadPart}.${authTokenSignature(payloadPart)}`;
 }
 
@@ -8970,7 +9187,7 @@ function adminFromRequest(req) {
     if (prefix !== 'lumii-admin-v1' || !payloadPart || !signature) return null;
     if (!safeEqualText(signature, authTokenSignature(payloadPart))) return null;
     const payload = JSON.parse(base64UrlDecode(payloadPart));
-    if (![1, 2].includes(Number(payload?.version || 0)) || payload?.role !== 'admin') return null;
+    if (Number(payload?.version || 0) !== 3 || payload?.role !== 'admin') return null;
     if (Number(payload.exp || 0) < Date.now()) return null;
     const account = adminAccountByIdOrUsername(payload.adminId, payload.username);
     if (!account) return null;
@@ -8979,6 +9196,16 @@ function adminFromRequest(req) {
     if (Number.isFinite(passwordUpdatedAt) && passwordUpdatedAt > issuedAt) return null;
     const mfaUpdatedAt = Date.parse(String(account.mfaUpdatedAt || ''));
     if (Number.isFinite(mfaUpdatedAt) && mfaUpdatedAt > issuedAt) return null;
+    const session = Number(payload.version || 0) >= 3 ? adminLoginSessionByJti(payload.jti) : null;
+    if (Number(payload.version || 0) >= 3) {
+      if (!session || adminLoginSessionStatus(session) !== 'active') return null;
+      if (!adminLoginSessionMatchesAccount(session, account.id || payload.adminId, account.username || payload.username)) return null;
+      const nowIso = new Date().toISOString();
+      session.lastIp = clientIpFromRequest(req);
+      session.lastSeenAt = nowIso;
+      session.lastUserAgent = String(req.headers['user-agent'] || '').slice(0, 180);
+      session.updatedAt = nowIso;
+    }
     const roleIds = normalizeAdminRoleIds(account.roleIds || payload.roleIds, ['admin']);
     return {
       displayName: account.displayName || account.username,
@@ -8986,6 +9213,7 @@ function adminFromRequest(req) {
       id: account.id || '',
       issuedAt: Number(payload.iat || 0),
       jti: String(payload.jti || ''),
+      loginSessionId: session?.id || '',
       role: roleIds[0] || 'admin',
       roleIds,
       username: String(account.username || payload.username || ADMIN_USERNAME),
@@ -29289,7 +29517,7 @@ function adminRoleCatalog() {
 function adminRequiredPermissionForRequest(method, pathname) {
   const httpMethod = String(method || 'GET').toUpperCase();
   const path = String(pathname || '');
-  if (path === '/admin/me') return '';
+  if (path === '/admin/me' || path === '/admin/auth/logout' || path.startsWith('/admin/auth/sessions')) return '';
   if (path === '/admin/approvals/pending') return 'dashboard.view';
   if (path.startsWith('/admin/accounts')) return 'admin.manage_roles';
   if (httpMethod === 'POST' && path === '/admin/dashboard/alerts/test') return 'config.update';
@@ -29531,9 +29759,15 @@ function changeAdminAccountStatus(admin, accountId, status, body = {}) {
     account.disabledBy = '';
     account.disabledReason = '';
   }
+  const revokedSessions = status === 'disabled'
+    ? revokeAdminLoginSessionsForAccount(account.id, account.username, admin, reasonResult.reason)
+    : 0;
   const after = publicAdminAccount(account);
   writeAdminAudit(admin, status === 'disabled' ? 'admin.account.disable' : 'admin.account.enable', 'admin_account', account.id, before, after, reasonResult.reason);
-  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+  if (revokedSessions > 0) {
+    writeAdminAudit(admin, 'admin.session.revoke_all', 'admin_account', account.id, null, { revokedSessions, username: account.username }, reasonResult.reason);
+  }
+  return { account: after, accounts: adminAccountRows(), revokedSessions, summary: adminAccounts(admin).summary };
 }
 
 function offboardAdminAccount(admin, accountId, body = {}) {
@@ -29562,10 +29796,14 @@ function offboardAdminAccount(admin, accountId, body = {}) {
     status: 'offboarded',
     updatedAt: now,
   });
+  const revokedSessions = revokeAdminLoginSessionsForAccount(account.id, account.username, admin, reasonResult.reason);
   const after = publicAdminAccount(account);
   writeAdminAudit(admin, 'admin.account.offboard', 'admin_account', account.id, before, after, reasonResult.reason);
   clearAdminLoginFailureForAccount(account.username, admin, '离职停用后清理该账号登录失败锁定');
-  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+  if (revokedSessions > 0) {
+    writeAdminAudit(admin, 'admin.session.revoke_all', 'admin_account', account.id, null, { revokedSessions, username: account.username }, reasonResult.reason);
+  }
+  return { account: after, accounts: adminAccountRows(), revokedSessions, summary: adminAccounts(admin).summary };
 }
 
 function resetAdminAccountPassword(admin, accountId, body = {}) {
@@ -29583,10 +29821,14 @@ function resetAdminAccountPassword(admin, accountId, body = {}) {
     passwordResetBy: admin?.username || ADMIN_USERNAME,
     updatedAt: new Date().toISOString(),
   });
+  const revokedSessions = revokeAdminLoginSessionsForAccount(account.id, account.username, admin, reasonResult.reason);
   const after = publicAdminAccount(account);
   writeAdminAudit(admin, 'admin.account.reset_password', 'admin_account', account.id, before, after, reasonResult.reason);
   clearAdminLoginFailureForAccount(account.username, admin, '重置密码后清理该账号登录失败锁定');
-  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+  if (revokedSessions > 0) {
+    writeAdminAudit(admin, 'admin.session.revoke_all', 'admin_account', account.id, null, { revokedSessions, username: account.username }, reasonResult.reason);
+  }
+  return { account: after, accounts: adminAccountRows(), revokedSessions, summary: adminAccounts(admin).summary };
 }
 
 function resetAdminAccountMfa(admin, accountId, body = {}) {
@@ -29608,9 +29850,13 @@ function resetAdminAccountMfa(admin, accountId, body = {}) {
   account.mfaUpdatedAt = new Date().toISOString();
   account.mfaUpdatedBy = admin?.username || ADMIN_USERNAME;
   account.updatedAt = account.mfaUpdatedAt;
+  const revokedSessions = revokeAdminLoginSessionsForAccount(account.id, account.username, admin, reasonResult.reason);
   const after = publicAdminAccount(account);
   writeAdminAudit(admin, 'admin.account.reset_mfa', 'admin_account', account.id, before, after, reasonResult.reason);
-  return { account: after, accounts: adminAccountRows(), summary: adminAccounts(admin).summary };
+  if (revokedSessions > 0) {
+    writeAdminAudit(admin, 'admin.session.revoke_all', 'admin_account', account.id, null, { revokedSessions, username: account.username }, reasonResult.reason);
+  }
+  return { account: after, accounts: adminAccountRows(), revokedSessions, summary: adminAccounts(admin).summary };
 }
 
 function generateAdminPassword() {
@@ -29757,6 +30003,7 @@ function adminAccounts(admin = {}) {
   const anyMfaEnabled = activeMfaCount > 0;
   const passwordRotation = adminPasswordRotationStatus(accountRows);
   const sessionPermissionKeys = adminPermissionsForRoles(admin.roleIds || [admin.role || 'admin']);
+  const loginSessionsData = adminLoginSessionsResponse(admin);
   const checks = [
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus('ok', 'login_lockout', '逐账号登录失败锁定', loginSecurity.locked ? `当前 ${loginSecurity.lockedAccountCount} 个账号锁定到 ${loginSecurity.lockedUntil}` : `每个账号连续 ${loginSecurity.maxAttempts} 次失败会独立锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
@@ -29765,6 +30012,7 @@ function adminAccounts(admin = {}) {
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
     adminCheckStatus('ok', 'account_offboarding', '离职账号停用', `已接凭据销毁、MFA 清除、旧会话立即失效和禁止原账号恢复；当前 ${offboardedAccountRows.length} 个离职停用账号。`, 'POST /admin/accounts/{id}/offboard / admin.account.offboard'),
+    adminCheckStatus('ok', 'login_session_management', '后台登录设备管理', `当前账号保留 ${loginSessionsData.summary.total} 条会话记录，其中 ${loginSessionsData.summary.active} 条有效；支持单会话撤销、退出其他设备和服务端主动登出。`, 'GET /admin/auth/sessions / POST /admin/auth/sessions/{id}/revoke / POST /admin/auth/logout'),
   ];
   const response = {
     accounts: accountRows,
@@ -29774,6 +30022,7 @@ function adminAccounts(admin = {}) {
       id: admin.id || '',
       issuedAt: admin.issuedAt ? new Date(admin.issuedAt).toISOString() : '',
       ip: admin.ip || '',
+      loginSessionId: admin.loginSessionId || '',
       role: admin.role || 'admin',
       roleIds: normalizeAdminRoleIds(admin.roleIds, ['admin']),
       permissionKeys: sessionPermissionKeys,
@@ -29807,8 +30056,11 @@ function adminAccounts(admin = {}) {
       usernameFromEnv,
     },
     loginSecurity,
+    loginSessions: loginSessionsData.sessions,
+    loginSessionSummary: loginSessionsData.summary,
     summary: {
       activeAccounts: accountRows.filter((account) => account.status === 'active').length,
+      activeLoginSessions: loginSessionsData.summary.active,
       activePermissions: sessionPermissionKeys.length,
       failedAttempts: loginSecurity.failedAttempts,
       lockedAccounts: accountRows.filter((account) => account.status === 'locked').length,
@@ -30747,12 +30999,12 @@ function adminReadinessGaps(context) {
       severity: 'P0',
       status: defaultPasswordRisk ? 'blocked' : adminSecurityMissing.length ? 'partial' : 'ready',
       issue: adminSecurityMissing.length
-        ? `已接逐账号登录失败锁定、多管理员、运行时 RBAC、密码轮换检查，以及离职账号凭据销毁、MFA 清除、旧会话失效和禁止恢复；仍缺：${adminSecurityMissing.join('、')}。`
-        : '后台环境变量密码、IP 白名单、全员 MFA、密码轮换、登录失败锁定、运行时 RBAC 和离职停用闭环均已就绪。',
+        ? `已接逐账号登录失败锁定、多管理员、运行时 RBAC、密码轮换检查、登录设备会话管理，以及离职账号凭据销毁、MFA 清除、旧会话失效和禁止恢复；仍缺：${adminSecurityMissing.join('、')}。`
+        : '后台环境变量密码、IP 白名单、全员 MFA、密码轮换、登录失败锁定、登录设备会话管理、运行时 RBAC 和离职停用闭环均已就绪。',
       requiredAction: adminSecurityMissing.length
         ? `生产前补齐：${adminSecurityMissing.join('、')}；离职人员使用“离职停用”，返岗时新建账号。`
         : '按季度抽查账号、MFA、密码轮换和离职停用审计。',
-      evidence: '账号权限页 / 系统健康页 / POST /admin/accounts/{id}/offboard / admin.account.offboard',
+      evidence: '账号权限页 / GET /admin/auth/sessions / POST /admin/auth/sessions/{id}/revoke / POST /admin/accounts/{id}/offboard',
     },
     {
       key: 'api_https',
@@ -37202,8 +37454,9 @@ async function handleAdminRequest(req, res, pathname, url, body) {
     }
     recordAdminLoginSuccess(admin, account.username);
     writeAdminAudit(admin, 'admin.login', 'admin_user', account.id || account.username, null, publicAdminAccount(account), 'login');
+    const token = createAdminToken(account, admin);
     saveState();
-    ok(res, { admin, loginSecurity: adminLoginSecurityStatus(), token: createAdminToken(account) });
+    ok(res, { admin, loginSecurity: adminLoginSecurityStatus(), token });
     return true;
   }
 
@@ -37214,6 +37467,41 @@ async function handleAdminRequest(req, res, pathname, url, body) {
   const permissionResult = requireAdminRequestPermission(admin, req.method, pathname);
   if (permissionResult) {
     fail(res, permissionResult.statusCode, permissionResult.error, false, { permission: permissionResult.permission }, permissionResult.code);
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/auth/logout') {
+    const result = logoutAdminLoginSession(admin);
+    saveState('admin_logout');
+    ok(res, result);
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/admin/auth/sessions') {
+    ok(res, adminLoginSessionsResponse(admin));
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/admin/auth/sessions/revoke-others') {
+    const result = revokeOtherAdminLoginSessions(admin, body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_LOGIN_SESSION_INVALID');
+      return true;
+    }
+    saveState('admin_sessions_revoke_others');
+    ok(res, result);
+    return true;
+  }
+
+  const adminSessionRevokeMatch = pathname.match(/^\/admin\/auth\/sessions\/([^/]+)\/revoke$/u);
+  if (req.method === 'POST' && adminSessionRevokeMatch) {
+    const result = revokeOwnAdminLoginSession(admin, decodeURIComponent(adminSessionRevokeMatch[1]), body);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, undefined, result.code || 'ADMIN_LOGIN_SESSION_INVALID');
+      return true;
+    }
+    saveState('admin_session_revoke');
+    ok(res, result);
     return true;
   }
 

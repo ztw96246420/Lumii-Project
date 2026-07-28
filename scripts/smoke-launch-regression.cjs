@@ -69,6 +69,7 @@ const suites = [
   { key: 'ticket-sla-roster', title: 'Ticket SLA roster', script: 'smoke-ticket-sla-roster.cjs', timeoutMs: 180_000 },
 
   { key: 'admin-accounts', title: 'Admin accounts', script: 'smoke-admin-accounts.cjs', timeoutMs: 180_000 },
+  { key: 'admin-login-sessions', title: 'Admin login device sessions', script: 'smoke-admin-login-sessions.cjs', timeoutMs: 180_000 },
   { key: 'admin-ip-allowlist', title: 'Admin IP allowlist', script: 'smoke-admin-ip-allowlist.cjs', timeoutMs: 180_000 },
   { key: 'account-deletion', title: 'Account deletion', script: 'smoke-account-deletion.cjs', timeoutMs: 180_000 },
   { key: 'user-timeline', title: 'User timeline', script: 'smoke-user-timeline.cjs', timeoutMs: 180_000 },

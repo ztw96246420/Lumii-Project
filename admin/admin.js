@@ -323,7 +323,12 @@ async function login() {
   }
 }
 
-function logout() {
+async function logout(remote = true) {
+  if (remote && state.token) {
+    try {
+      await api('/admin/auth/logout', { body: JSON.stringify({}), method: 'POST' });
+    } catch {}
+  }
   state.token = '';
   state.admin = null;
   localStorage.removeItem('lumii-admin-token');
@@ -342,7 +347,7 @@ async function bootstrap() {
     setLoggedIn(true);
     await render();
   } catch {
-    logout();
+    await logout(false);
   }
 }
 
@@ -351,7 +356,7 @@ function bindEvents() {
   $('passwordInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') login();
   });
-  $('logoutBtn').addEventListener('click', logout);
+  $('logoutBtn').addEventListener('click', () => logout());
   $('refreshBtn').addEventListener('click', () => render(true));
   $('nav').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-route]');
@@ -466,6 +471,18 @@ async function onContentClick(event) {
     }
     if (action === 'admin-account-reset-mfa') {
       await handleAdminAccountMfaReset(button);
+      return;
+    }
+    if (action === 'admin-session-revoke') {
+      await handleAdminSessionRevoke(button);
+      return;
+    }
+    if (action === 'admin-session-revoke-others') {
+      await handleAdminSessionRevokeOthers();
+      return;
+    }
+    if (action === 'admin-session-logout-current') {
+      await logout();
       return;
     }
     if (action === 'admin-security-package-generate') {
@@ -3170,6 +3187,45 @@ async function resetLegalDocument(button) {
   await render(true);
 }
 
+function adminLoginSessionStatusPill(row = {}) {
+  if (row.status === 'active') return tonePill(row.current ? '当前设备' : '在线', 'ok');
+  if (row.status === 'revoked') return tonePill('已退出', 'warn');
+  return statusPill('已过期');
+}
+
+function adminLoginSessionActionCell(row = {}) {
+  if (row.status !== 'active') return '<span class="cell-sub">无需操作</span>';
+  if (row.current) return '<button class="small-button danger" data-action="admin-session-logout-current">退出当前设备</button>';
+  return `<button class="small-button danger" data-action="admin-session-revoke" data-id="${escapeHtml(row.id || '')}" data-device="${escapeHtml(row.deviceLabel || '该设备')}">强制退出</button>`;
+}
+
+async function handleAdminSessionRevoke(button) {
+  const device = button.dataset.device || '该设备';
+  const reason = window.prompt(`请输入强制退出“${device}”的原因`, '发现未知设备或完成安全检查');
+  if (reason === null) return;
+  if (!window.confirm(`确认让“${device}”的后台会话立即失效？`)) return;
+  await post(`/admin/auth/sessions/${encodeURIComponent(button.dataset.id || '')}/revoke`, {
+    reason: reason.trim() || '管理员主动撤销后台登录设备',
+  });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast('该后台设备已强制退出');
+  await render(true);
+}
+
+async function handleAdminSessionRevokeOthers() {
+  const reason = window.prompt('请输入退出其他后台设备的原因', '账号安全检查，保留当前设备');
+  if (reason === null) return;
+  if (!window.confirm('确认保留当前设备，并让其他所有后台登录会话立即失效？')) return;
+  const result = await post('/admin/auth/sessions/revoke-others', {
+    reason: reason.trim() || '管理员主动退出其他后台设备',
+  });
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast(`已退出 ${numberText(result.revoked || 0)} 个其他后台设备`);
+  await render(true);
+}
+
 function adminAccountActionCell(row) {
   if (row.source === 'env') {
     return '<span class="cell-sub">环境变量账号请在服务器环境变量中维护。</span>';
@@ -3342,6 +3398,8 @@ async function renderAdminAccounts(force) {
   const summary = data.summary || {};
   const session = data.currentSession || {};
   const loginSecurity = data.loginSecurity || {};
+  const loginSessions = data.loginSessions || [];
+  const loginSessionSummary = data.loginSessionSummary || {};
   const ipAllowlist = data.security?.ipAllowlist || {};
   const roles = data.roles || [];
   const roleOptions = roles.map((role) => `<option value="${escapeHtml(role.key)}" ${role.key === 'support' ? 'selected' : ''}>${escapeHtml(role.label)} · ${escapeHtml(role.key)}</option>`).join('');
@@ -3352,7 +3410,7 @@ async function renderAdminAccounts(force) {
       ${metric('安全关注', numberText(summary.securityWarnings || 0), `${numberText(summary.offboardedAccounts || 0)} 个离职停用`, '多管理员、角色权限、登录失败锁定、IP 白名单、TOTP MFA、密码轮换检查和离职凭据销毁已接入。')}
       ${metric('登录保护', loginSecurity.lockedAccountCount ? `${numberText(loginSecurity.lockedAccountCount)} 个锁定` : `${numberText(loginSecurity.failedAttempts || 0)}/${numberText(loginSecurity.maxAttempts || 5)}`, `${numberText(loginSecurity.lockMinutes || 15)} 分钟锁定`, '连续失败达到阈值后，只临时锁定对应后台账号，并写入审计日志。')}
       ${metric('IP 白名单', ipAllowlist.configured ? '已启用' : '未启用', ipAllowlist.configured ? `${numberText(ipAllowlist.entryCount || 0)} 条规则 · 当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '配置环境变量后生效', '配置 LUMII_ADMIN_IP_ALLOWLIST 后，/admin 页面和 /admin/* API 都会拦截非白名单 IP。')}
-      ${metric('当前会话', session.expiresAt ? formatTime(session.expiresAt) : '-', `${escapeHtml(session.ip || 'IP 未记录')}`, '当前后台 token 的到期时间、请求 IP 和 User-Agent 摘要。')}
+      ${metric('登录设备', numberText(loginSessionSummary.active || 0), `${numberText(loginSessionSummary.total || 0)} 条会话记录`, '后台登录 Token 已绑定服务端设备会话，可单独强制退出、退出其他设备或主动注销。')}
     </div>
 
     ${renderAdminSecurityPackagePanel(data)}
@@ -3411,6 +3469,27 @@ async function renderAdminAccounts(force) {
         ['密码', (row) => `<div class="cell-sub">${row.passwordUpdatedAt ? `最近更新 ${formatTime(row.passwordUpdatedAt)}` : row.source === 'env' ? '环境变量维护' : '未记录'}</div>`],
         ['操作', (row) => adminAccountActionCell(row)],
       ], '暂无后台账号')}
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>后台登录设备</h2>
+          <div class="section-sub">当前账号的服务端会话 · 有效 ${numberText(loginSessionSummary.active || 0)} 条</div>
+        </div>
+        <div class="actions">
+          ${Number(loginSessionSummary.active || 0) > 1 ? '<button class="small-button danger" data-action="admin-session-revoke-others">退出其他设备</button>' : ''}
+          ${help('只保存随机会话标识、登录时间、IP 和 User-Agent，不保存完整 Bearer Token。强制退出后，对应设备的下一次请求会立即返回 401。')}
+        </div>
+      </div>
+      ${tableHtml(loginSessions, [
+        ['设备', (row) => `<div class="cell-title">${escapeHtml(row.deviceLabel || '未知设备')}</div><div class="cell-sub clamp">${escapeHtml(row.userAgent || 'User-Agent 未记录')}</div>`],
+        ['账号/会话', (row) => `<div>${escapeHtml(row.username || '-')}</div><div class="cell-sub">${escapeHtml(row.id || '-')}</div>`],
+        ['来源', (row) => `<div>${escapeHtml(row.lastIp || row.loginIp || 'IP 未记录')}</div><div class="cell-sub">登录 ${formatTime(row.createdAt)}</div>`],
+        ['最后活动', (row) => `<div>${formatTime(row.lastSeenAt)}</div><div class="cell-sub">到期 ${formatTime(row.expiresAt)}</div>`],
+        ['状态', (row) => `${adminLoginSessionStatusPill(row)}${row.revokedAt ? `<div class="cell-sub">${formatTime(row.revokedAt)}</div>` : ''}`],
+        ['操作', (row) => adminLoginSessionActionCell(row)],
+      ], '暂无后台登录设备记录')}
     </div>
 
     <div class="grid two">
