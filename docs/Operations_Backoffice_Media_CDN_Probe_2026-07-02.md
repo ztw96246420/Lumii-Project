@@ -47,6 +47,7 @@
 - `PET_AVATAR_PUBLIC_BASE_URL`：优先使用的公开媒体 base URL。
 - `LUMII_PUBLIC_BASE_URL`：公开媒体 base URL 的兼容兜底。
 - `MEDIA_PUBLIC_PROBE_BASE_URL`：仅用于后台系统健康探测的媒体 base URL，优先级高于 App 实际使用的公开媒体 base。用于在 CDN 未完全可用时单独监控 `media.lumiiapp.cn`，不强行影响移动端媒体 URL。
+- `LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY`：独立的非用户 COS 探针对象键，例如 `system/health/media-probe-v1.png`。配置后优先探测该对象，避免空库或用户数据清理后因为没有媒体样本而丢失 COS/CDN 健康证据。
 - `MEDIA_PUBLIC_PROBE_TIMEOUT_MS`：单次探测超时时间，默认 `6000`，最低 `1000`。
 
 ## 和移动端的关联

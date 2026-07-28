@@ -149,6 +149,7 @@ async function startBackend(port, appBaseUrl, cdnBaseUrl) {
       ...process.env,
       LUMII_BACKEND_PORT: String(port),
       LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY: 'system/health/media-probe-v1.png',
       MEDIA_PUBLIC_PROBE_BASE_URL: cdnBaseUrl,
       MEDIA_PUBLIC_PROBE_TIMEOUT_MS: '3000',
       PET_AVATAR_PUBLIC_BASE_URL: appBaseUrl,
@@ -220,6 +221,8 @@ async function main() {
     assert.equal(probe.status, 'ok');
     assert.equal(probe.head.status, 200);
     assert.equal(probe.get.status, 206);
+    assert.equal(probe.objectKey, 'system/health/media-probe-v1.png');
+    assert.equal(probe.source, 'LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY');
     assert.equal(health.data.checks.some((item) => item.key === 'media_public_get' && item.status === 'ok'), true);
 
     const cdnProbe = health.data.mediaCdnProbe;

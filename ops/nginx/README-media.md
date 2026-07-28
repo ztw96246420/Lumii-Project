@@ -73,6 +73,8 @@ checking only `systemctl cat` is not sufficient.
 
 `PET_AVATAR_PUBLIC_BASE_URL` controls media URLs returned to the App.
 `MEDIA_PUBLIC_PROBE_BASE_URL` controls the independent admin health probe.
+
+`LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY` points that probe at a non-user COS sentinel (for example `system/health/media-probe-v1.png`). This keeps COS/CDN verification available even when the production user database is empty; the configured sentinel takes precedence over user media candidates.
 Both should use `https://media.lumiiapp.cn` after the CDN route is healthy.
 
 The backend returns successful public media as

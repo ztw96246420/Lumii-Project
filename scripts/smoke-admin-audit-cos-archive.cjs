@@ -286,6 +286,12 @@ async function main() {
     assert.equal(secondManifest.previousArchive.archiveId, first.data.archive.id);
     assert.equal(secondManifest.previousArchive.journalSha256, first.data.archive.journalSha256);
 
+    await loginAdmin();
+    const scheduledPending = await request('/admin/audit-archives', { token: adminToken });
+    assert.equal(scheduledPending.data.status, 'pending');
+    assert.equal(scheduledPending.data.pendingWithinSchedule, true);
+    assert.equal(scheduledPending.data.operationallyHealthy, true);
+    assert.ok(scheduledPending.data.nextScheduledAt);
     const healthy = await request('/admin/system/health', { token: adminToken });
     assert.equal(healthy.data.checks.find((item) => item.key === 'audit_cos_archive')?.status, 'ok');
     const readiness = await request('/admin/launch/readiness', { token: adminToken });

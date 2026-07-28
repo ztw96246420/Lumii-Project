@@ -123,6 +123,7 @@ const PET_AVATAR_ANIMATION_MIRROR_RETRY_MS = Math.max(50, Number(process.env.PET
 const PET_AVATAR_DAILY_LIMIT = Number(process.env.PET_AVATAR_DAILY_LIMIT || '10');
 const PET_AVATAR_PUBLIC_BASE_URL = (process.env.PET_AVATAR_PUBLIC_BASE_URL || process.env.LUMII_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const MEDIA_PUBLIC_PROBE_BASE_URL = (process.env.MEDIA_PUBLIC_PROBE_BASE_URL || '').replace(/\/+$/, '');
+const MEDIA_PUBLIC_PROBE_OBJECT_KEY = String(process.env.LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY || '').trim().replace(/^\/+/, '');
 const MEDIA_PUBLIC_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '6000') || 6000);
 const PUBLIC_API_BASE_URL = String(process.env.LUMII_PUBLIC_API_BASE_URL || '').trim().replace(/\/+$/, '');
 const PUBLIC_API_PROBE_TIMEOUT_MS = Math.max(1000, Number(process.env.LUMII_PUBLIC_API_PROBE_TIMEOUT_MS || '6000') || 6000);
@@ -9161,7 +9162,9 @@ function adminAuditArchiveStatus() {
   const latestSuccess = archives.find((item) => item.status === 'archived') || null;
   const journal = adminAuditJournalStatus();
   const latestSuccessMs = Date.parse(String(latestSuccess?.archivedAt || ''));
-  const stale = Boolean(latestSuccess && (!Number.isFinite(latestSuccessMs) || Date.now() - latestSuccessMs > ADMIN_AUDIT_COS_STALE_MS));
+  const now = Date.now();
+  const lastSuccessAgeMs = Number.isFinite(latestSuccessMs) ? Math.max(0, now - latestSuccessMs) : Number.POSITIVE_INFINITY;
+  const stale = Boolean(latestSuccess && (!Number.isFinite(latestSuccessMs) || lastSuccessAgeMs > ADMIN_AUDIT_COS_STALE_MS));
   const changedSinceLastArchive = Boolean(journal.sha256 && journal.sha256 !== latestSuccess?.journalSha256);
   let status = 'disabled';
   if (ADMIN_AUDIT_COS_ENABLED && !cosEnabled()) status = 'unconfigured';
@@ -9171,6 +9174,15 @@ function adminAuditArchiveStatus() {
   else if (ADMIN_AUDIT_COS_ENABLED && stale) status = 'stale';
   else if (ADMIN_AUDIT_COS_ENABLED && changedSinceLastArchive) status = 'pending';
   else if (ADMIN_AUDIT_COS_ENABLED) status = 'healthy';
+  const pendingGraceMs = Math.max(60 * 1000, Math.min(5 * 60 * 1000, Math.floor(ADMIN_AUDIT_COS_INTERVAL_MS * 0.2)));
+  const pendingWithinSchedule = status === 'pending'
+    && Boolean(latestSuccess)
+    && Number.isFinite(lastSuccessAgeMs)
+    && lastSuccessAgeMs <= ADMIN_AUDIT_COS_INTERVAL_MS + pendingGraceMs;
+  const operationallyHealthy = status === 'healthy' || status === 'empty' || pendingWithinSchedule;
+  const nextScheduledAt = latestSuccess && Number.isFinite(latestSuccessMs)
+    ? new Date(latestSuccessMs + ADMIN_AUDIT_COS_INTERVAL_MS).toISOString()
+    : '';
   return {
     archiveCount: archives.filter((item) => item.status === 'archived').length,
     changedSinceLastArchive,
@@ -9182,7 +9194,11 @@ function adminAuditArchiveStatus() {
     journalSha256: journal.sha256,
     lastAttempt: latest ? adminAuditArchivePublicItem(latest) : null,
     lastError: latest?.status === 'failed' ? latest.error || '' : '',
+    lastSuccessAgeMinutes: Number.isFinite(lastSuccessAgeMs) ? Math.floor(lastSuccessAgeMs / 60_000) : null,
     lastSuccess: latestSuccess ? adminAuditArchivePublicItem(latestSuccess) : null,
+    nextScheduledAt,
+    operationallyHealthy,
+    pendingWithinSchedule,
     prefix: ADMIN_AUDIT_COS_PREFIX,
     provider: ADMIN_AUDIT_COS_ENABLED ? 'tencent-cos' : '',
     staleAfterMinutes: Math.round(ADMIN_AUDIT_COS_STALE_MS / 60_000),
@@ -28380,6 +28396,8 @@ function adminMediaProbeObjectKey() {
   };
   const addUrl = (url, updatedAt = 0, source = '') => addKey(storageObjectKeyFromPublicUrl(url), updatedAt, source);
 
+  addKey(MEDIA_PUBLIC_PROBE_OBJECT_KEY, Number.MAX_SAFE_INTEGER, 'LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY');
+
   Object.values(state.avatarAnimationJobs || {}).forEach((job) => {
     addUrl(job.videoUrl || job.resultUrl, job.readyAt || job.updatedAt || job.createdAt, 'avatarAnimationJobs.videoUrl');
     addUrl(job.preparedSourceAvatarUrl, job.updatedAt || job.createdAt, 'avatarAnimationJobs.preparedSourceAvatarUrl');
@@ -28477,7 +28495,7 @@ async function adminMediaPublicProbe(baseUrlInput = publicMediaBaseUrl(), option
     return {
       baseUrl,
       detail: `${label} public base URL is configured, but no COS media object is available for probing yet`,
-      evidence: '等待产生至少一个 pet-avatar / mediaUploads / avatarAnimation 对象后自动探测',
+      evidence: '配置 LUMII_MEDIA_PUBLIC_PROBE_OBJECT_KEY，或等待产生至少一个 pet-avatar / mediaUploads / avatarAnimation 对象后自动探测',
       kind,
       label,
       objectKey: '',
@@ -28809,13 +28827,15 @@ async function adminSystemHealth() {
     ),
     adminCheckStatus(!stateBackups.enabled ? 'warn' : stateBackups.lastBackupError || stateBackups.lastSaveError || stateBackups.lastMirrorError ? 'warn' : stateBackups.count > 0 ? 'ok' : 'warn', 'state_backups', '状态快照备份', !stateBackups.enabled ? '状态备份未启用' : stateBackups.lastMirrorError ? `JSON 回滚镜像异常：${stateBackups.lastMirrorError}` : stateBackups.count > 0 ? `已有 ${stateBackups.count} 份备份，最近 ${stateBackups.latestAt || '-'}` : '尚未生成状态备份，下次成功写入后会自动生成', stateBackups.latestPath || stateBackups.dir),
     adminCheckStatus(
-      auditArchive.status === 'healthy' || auditArchive.status === 'empty' ? 'ok' : auditArchive.status === 'failed' || auditArchive.status === 'stale' ? 'bad' : 'warn',
+      auditArchive.operationallyHealthy ? 'ok' : auditArchive.status === 'failed' || auditArchive.status === 'stale' ? 'bad' : 'warn',
       'audit_cos_archive',
       '审计日志 COS 异地归档',
       auditArchive.status === 'healthy'
         ? `已完成 ${auditArchive.archiveCount} 次只增不改归档，最近 ${auditArchive.lastSuccess?.archivedAt || '-'}`
         : auditArchive.status === 'pending'
-          ? '审计 journal 有新内容，等待下一次自动归档'
+          ? auditArchive.pendingWithinSchedule
+            ? `审计 journal 有新内容，仍在 ${auditArchive.intervalMinutes} 分钟自动归档周期内`
+            : '审计 journal 有新内容，但已超出正常自动归档周期'
           : auditArchive.status === 'empty'
             ? '归档已启用，等待首条审计日志'
             : auditArchive.status === 'disabled'
@@ -30472,7 +30492,7 @@ function adminReadinessModules(context) {
   const hasConfigReserved = Number(linkageSummary?.reserved || 0) > 0;
   const aiRuntime = aiRuntimeReadiness();
   const contentSafetyReadiness = adminContentSafetyReadiness(contentSafety);
-  const auditArchiveReady = health?.auditArchive?.status === 'healthy' || health?.auditArchive?.status === 'empty';
+  const auditArchiveReady = Boolean(health?.auditArchive?.operationallyHealthy);
   const petMedicalReview = health?.petMedicalReview || adminPetMedicalReviewStatus();
   const pushAcceptance = health?.pushAcceptance || adminPushProductionAcceptance();
   return [
@@ -30683,7 +30703,7 @@ function adminReadinessGaps(context) {
   const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
   const auditArchive = health?.auditArchive || adminAuditArchiveStatus();
-  const auditArchiveReady = auditArchive.status === 'healthy' || auditArchive.status === 'empty';
+  const auditArchiveReady = Boolean(auditArchive.operationallyHealthy);
   const publicApiProbe = health?.publicApiProbe || {};
   const publicApiExternalProof = health?.publicApiExternalProof || publicApiExternalProofStatus(publicApiProbe);
   const publicApiOriginReady = publicApiProbe.status === 'ok' && publicApiProbe.ok === true;
