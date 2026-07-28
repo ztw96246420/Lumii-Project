@@ -261,8 +261,24 @@ async function main() {
     await page.locator('button[data-action="admin-session-logout-current"]').waitFor({ timeout: 30_000 });
     await page.locator('button[data-action="admin-session-revoke-others"]').waitFor({ timeout: 30_000 });
     await page.locator(`button[data-action="admin-account-offboard"][data-id="${activeAccount.data.account.id}"]`).waitFor({ timeout: 30_000 });
+    const bindMfaButton = page.locator(`button[data-action="admin-account-mfa-enroll-start"][data-id="${activeAccount.data.account.id}"]`);
+    await bindMfaButton.waitFor({ timeout: 30_000 });
+    await page.locator('button[data-action="admin-account-mfa-enroll-start"][data-id="admin-env"]').waitFor({ timeout: 30_000 });
     await page.getByText('已离职停用；为保留审计边界，该账号不可恢复，请按需新建账号。').waitFor({ timeout: 30_000 });
     await page.getByText('离职停用', { exact: true }).first().waitFor({ timeout: 30_000 });
+
+    page.once('dialog', async (dialog) => {
+      assert.equal(dialog.type(), 'prompt');
+      await dialog.accept('visual smoke starts verified MFA enrollment');
+    });
+    await bindMfaButton.click();
+    await page.locator('.mfa-enrollment-card').waitFor({ timeout: 30_000 });
+    await page.locator('#adminMfaQr svg').waitFor({ timeout: 30_000 });
+    await page.locator('#adminMfaEnrollmentCode').waitFor({ timeout: 30_000 });
+    await page.locator('.mfa-enrollment-card').getByText('验证成功前不会启用', { exact: false }).waitFor({ timeout: 30_000 });
+    await page.screenshot({ fullPage: true, path: path.join(artifactsDir, 'admin-mfa-enrollment.png') });
+    await page.locator('button[data-action="admin-account-mfa-enroll-cancel"]').click();
+    await page.locator('.mfa-enrollment-card').waitFor({ state: 'hidden', timeout: 30_000 });
 
     let dialogIndex = 0;
     page.on('dialog', async (dialog) => {

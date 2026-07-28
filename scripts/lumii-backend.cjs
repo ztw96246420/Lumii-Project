@@ -252,6 +252,8 @@ const ADMIN_PASSWORD_MIN_LENGTH = Math.max(8, Number(process.env.LUMII_ADMIN_PAS
 const ADMIN_PASSWORD_HASH_ITERATIONS = Math.max(100000, Number(process.env.LUMII_ADMIN_PASSWORD_HASH_ITERATIONS || '210000') || 210000);
 const ADMIN_MFA_SECRET = process.env.LUMII_ADMIN_MFA_SECRET || process.env.LUMII_ADMIN_TOTP_SECRET || '';
 const ADMIN_MFA_WINDOW = Math.max(0, Math.min(3, Number(process.env.LUMII_ADMIN_MFA_WINDOW || '1') || 1));
+const ADMIN_MFA_ENROLLMENT_TTL_MS = Math.max(5 * 60 * 1000, Math.min(60 * 60 * 1000, Number(process.env.LUMII_ADMIN_MFA_ENROLLMENT_TTL_MS || 15 * 60 * 1000) || 15 * 60 * 1000));
+const ADMIN_MFA_ENROLLMENT_MAX_ATTEMPTS = Math.max(3, Math.min(10, Number(process.env.LUMII_ADMIN_MFA_ENROLLMENT_MAX_ATTEMPTS || '5') || 5));
 const ADMIN_PASSWORD_ROTATION_DAYS = Math.max(0, Number(process.env.LUMII_ADMIN_PASSWORD_ROTATION_DAYS || '90') || 0);
 const ADMIN_PASSWORD_ROTATED_AT = process.env.LUMII_ADMIN_PASSWORD_ROTATED_AT || process.env.LUMII_ADMIN_PASSWORD_UPDATED_AT || '';
 const ADMIN_ALERT_WEBHOOK_URL = String(process.env.LUMII_ADMIN_ALERT_WEBHOOK_URL || '').trim();
@@ -1054,7 +1056,9 @@ function createInitialState() {
     adminAuditArchives: [],
     adminAuditLogs: [],
     adminAccounts: {},
+    adminEnvMfaProfile: {},
     adminLoginSessions: [],
+    adminMfaEnrollments: {},
     adminDataClearApprovals: [],
     adminExportApprovals: [],
     adminExportJobs: [],
@@ -6200,7 +6204,9 @@ function loadState() {
         ...(loadedState.adminLoginSecurity || {}),
       },
       adminAccounts: loadedState.adminAccounts && typeof loadedState.adminAccounts === 'object' && !Array.isArray(loadedState.adminAccounts) ? loadedState.adminAccounts : initialState.adminAccounts,
+      adminEnvMfaProfile: loadedState.adminEnvMfaProfile && typeof loadedState.adminEnvMfaProfile === 'object' && !Array.isArray(loadedState.adminEnvMfaProfile) ? loadedState.adminEnvMfaProfile : initialState.adminEnvMfaProfile,
       adminLoginSessions: Array.isArray(loadedState.adminLoginSessions) ? loadedState.adminLoginSessions : initialState.adminLoginSessions,
+      adminMfaEnrollments: loadedState.adminMfaEnrollments && typeof loadedState.adminMfaEnrollments === 'object' && !Array.isArray(loadedState.adminMfaEnrollments) ? loadedState.adminMfaEnrollments : initialState.adminMfaEnrollments,
       adminAlertWebhookDeliveries: Array.isArray(loadedState.adminAlertWebhookDeliveries) ? loadedState.adminAlertWebhookDeliveries : initialState.adminAlertWebhookDeliveries,
       adminAuditArchives: Array.isArray(loadedState.adminAuditArchives) ? loadedState.adminAuditArchives : initialState.adminAuditArchives,
       adminAuditLogs: Array.isArray(loadedState.adminAuditLogs) ? loadedState.adminAuditLogs : initialState.adminAuditLogs,
@@ -7836,7 +7842,7 @@ function sendMediaBuffer(req, res, buffer, contentType, cacheControl = publicMed
 function staticContentType(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   if (extension === '.css') return 'text/css; charset=utf-8';
-  if (extension === '.js') return 'application/javascript; charset=utf-8';
+  if (extension === '.js' || extension === '.mjs') return 'application/javascript; charset=utf-8';
   if (extension === '.png') return 'image/png';
   if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
   if (extension === '.svg') return 'image/svg+xml; charset=utf-8';
@@ -8727,14 +8733,59 @@ function ensureAdminAccounts() {
   return state.adminAccounts;
 }
 
+function ensureAdminEnvMfaProfile() {
+  state.adminEnvMfaProfile = state.adminEnvMfaProfile && typeof state.adminEnvMfaProfile === 'object' && !Array.isArray(state.adminEnvMfaProfile)
+    ? state.adminEnvMfaProfile
+    : {};
+  return state.adminEnvMfaProfile;
+}
+
+function ensureAdminMfaEnrollments() {
+  state.adminMfaEnrollments = state.adminMfaEnrollments && typeof state.adminMfaEnrollments === 'object' && !Array.isArray(state.adminMfaEnrollments)
+    ? state.adminMfaEnrollments
+    : {};
+  return state.adminMfaEnrollments;
+}
+
+function pruneAdminMfaEnrollments(now = Date.now()) {
+  const enrollments = ensureAdminMfaEnrollments();
+  Object.entries(enrollments).forEach(([accountId, enrollment]) => {
+    const expiresAt = Date.parse(String(enrollment?.expiresAt || ''));
+    if (!enrollment || !Number.isFinite(expiresAt) || expiresAt <= now || Number(enrollment.attempts || 0) >= ADMIN_MFA_ENROLLMENT_MAX_ATTEMPTS) {
+      delete enrollments[accountId];
+    }
+  });
+  return enrollments;
+}
+
+function adminMfaEnrollmentForAccount(accountId) {
+  return pruneAdminMfaEnrollments()[String(accountId || '').trim()] || null;
+}
+
+function clearAdminMfaEnrollment(accountId) {
+  const id = String(accountId || '').trim();
+  if (!id) return false;
+  const enrollments = ensureAdminMfaEnrollments();
+  if (!enrollments[id]) return false;
+  delete enrollments[id];
+  return true;
+}
+
 function adminEnvAccount() {
+  const storedMfa = ensureAdminEnvMfaProfile();
+  const envMfaSecret = normalizeAdminMfaSecret(ADMIN_MFA_SECRET);
+  const storedMfaSecret = normalizeAdminMfaSecret(storedMfa.mfaSecret);
+  const mfaSecret = envMfaSecret || storedMfaSecret;
   return {
     createdAt: '',
     displayName: ADMIN_USERNAME,
     id: 'admin-env',
     isEnvAccount: true,
-    mfaEnabled: Boolean(normalizeAdminMfaSecret(ADMIN_MFA_SECRET)),
-    mfaSecret: normalizeAdminMfaSecret(ADMIN_MFA_SECRET),
+    mfaEnabled: Boolean(mfaSecret),
+    mfaSecret,
+    mfaSource: envMfaSecret ? 'env' : storedMfaSecret ? 'state_enrollment' : '',
+    mfaUpdatedAt: storedMfaSecret && safeEqualText(storedMfaSecret, mfaSecret) ? normalizeIsoDateText(storedMfa.mfaUpdatedAt) : '',
+    mfaUpdatedBy: storedMfaSecret && safeEqualText(storedMfaSecret, mfaSecret) ? String(storedMfa.mfaUpdatedBy || '') : '',
     passwordUpdatedAt: normalizeIsoDateText(ADMIN_PASSWORD_ROTATED_AT),
     roleIds: ['admin'],
     source: 'env',
@@ -8825,11 +8876,11 @@ function totpCodeForSecret(secret, counter) {
   return String(code % 1_000_000).padStart(6, '0');
 }
 
-function verifyAdminAccountMfa(account, inputCode, now = Date.now()) {
-  if (!adminAccountMfaEnabled(account)) return true;
+function verifyAdminMfaSecret(secretValue, inputCode, now = Date.now()) {
   const code = String(inputCode || '').replace(/\s+/g, '');
   if (!/^\d{6}$/.test(code)) return false;
-  const secret = adminAccountMfaSecret(account);
+  const secret = normalizeAdminMfaSecret(secretValue);
+  if (!secret) return false;
   const counter = Math.floor(now / 30_000);
   for (let delta = -ADMIN_MFA_WINDOW; delta <= ADMIN_MFA_WINDOW; delta += 1) {
     if (safeEqualText(totpCodeForSecret(secret, counter + delta), code)) return true;
@@ -8837,8 +8888,14 @@ function verifyAdminAccountMfa(account, inputCode, now = Date.now()) {
   return false;
 }
 
+function verifyAdminAccountMfa(account, inputCode, now = Date.now()) {
+  if (!adminAccountMfaEnabled(account)) return true;
+  return verifyAdminMfaSecret(adminAccountMfaSecret(account), inputCode, now);
+}
+
 function publicAdminAccount(account = {}) {
   const roleIds = normalizeAdminRoleIds(account.roleIds, ['admin']);
+  const enrollment = adminMfaEnrollmentForAccount(account.id);
   return {
     createdAt: account.createdAt || '',
     createdBy: account.createdBy || '',
@@ -8852,6 +8909,9 @@ function publicAdminAccount(account = {}) {
     lastLoginUserAgent: account.lastLoginUserAgent || '',
     lockedUntil: '',
     mfaEnabled: adminAccountMfaEnabled(account),
+    mfaEnrollmentExpiresAt: enrollment?.expiresAt || '',
+    mfaEnrollmentPending: Boolean(enrollment),
+    mfaSource: account.mfaSource || (account.isEnvAccount && adminAccountMfaEnabled(account) ? 'env' : adminAccountMfaEnabled(account) ? 'state' : ''),
     mfaUpdatedAt: account.mfaUpdatedAt || '',
     offboardedAt: account.offboardedAt || '',
     offboardedBy: account.offboardedBy || '',
@@ -29710,9 +29770,8 @@ function createAdminAccount(admin, body = {}) {
   if (reasonResult.error) return reasonResult;
   const roleIds = normalizeAdminRoleIds(body.roleIds || body.roles || body.roleId || ['support'], ['support']);
   const rawMfaSecret = body.mfaSecret || body.totpSecret || '';
-  const mfaSecret = normalizeAdminMfaSecret(rawMfaSecret);
-  if (String(rawMfaSecret || '').trim() && !mfaSecret) {
-    return { error: 'MFA Secret 必须是有效的 Base32 TOTP 密钥', statusCode: 400, code: 'ADMIN_ACCOUNT_MFA_SECRET_INVALID' };
+  if (String(rawMfaSecret || '').trim()) {
+    return { error: '不能直接写入未验证的 MFA Secret；请先创建账号，再通过扫码绑定并输入动态验证码确认', statusCode: 400, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_REQUIRED' };
   }
   const now = new Date().toISOString();
   const id = `admin-account-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -29722,8 +29781,8 @@ function createAdminAccount(admin, body = {}) {
     createdBy: admin?.username || ADMIN_USERNAME,
     displayName: normalizeAdminDisplayName(body.displayName, usernameResult.username),
     id,
-    mfaEnabled: Boolean(mfaSecret),
-    mfaSecret,
+    mfaEnabled: false,
+    mfaSecret: '',
     roleIds,
     source: 'state',
     status: 'active',
@@ -29751,6 +29810,7 @@ function changeAdminAccountStatus(admin, accountId, status, body = {}) {
   account.status = status;
   account.updatedAt = now;
   if (status === 'disabled') {
+    clearAdminMfaEnrollment(account.id);
     account.disabledAt = now;
     account.disabledBy = admin?.username || ADMIN_USERNAME;
     account.disabledReason = reasonResult.reason;
@@ -29781,6 +29841,7 @@ function offboardAdminAccount(admin, accountId, body = {}) {
   if (reasonResult.error) return reasonResult;
   const before = publicAdminAccount(account);
   const now = new Date().toISOString();
+  clearAdminMfaEnrollment(account.id);
   Object.assign(account, adminPasswordRecord(generateAdminPassword()), {
     credentialDestroyedAt: now,
     disabledAt: now,
@@ -29817,6 +29878,7 @@ function resetAdminAccountPassword(admin, accountId, body = {}) {
   const reasonResult = adminAccountReason(body.reason, '重置后台账号密码');
   if (reasonResult.error) return reasonResult;
   const before = publicAdminAccount(account);
+  clearAdminMfaEnrollment(account.id);
   Object.assign(account, adminPasswordRecord(passwordResult.password), {
     passwordResetBy: admin?.username || ADMIN_USERNAME,
     updatedAt: new Date().toISOString(),
@@ -29831,32 +29893,209 @@ function resetAdminAccountPassword(admin, accountId, body = {}) {
   return { account: after, accounts: adminAccountRows(), revokedSessions, summary: adminAccounts(admin).summary };
 }
 
+function adminAccountForMfaManagement(accountId) {
+  const id = String(accountId || '').trim();
+  if (id === 'admin-env') return adminEnvAccount();
+  return findStoredAdminAccountById(id);
+}
+
+function adminMfaEnrollmentPublic(enrollment = {}, account = {}) {
+  return {
+    account: publicAdminAccount(account),
+    accountId: enrollment.accountId || account.id || '',
+    enrollmentId: enrollment.id || '',
+    expiresAt: enrollment.expiresAt || '',
+    issuer: enrollment.issuer || 'Lumii',
+    manualEntrySecret: enrollment.mfaSecret || '',
+    otpauthUri: enrollment.otpauthUri || '',
+    replacingMfa: Boolean(enrollment.replacingMfa),
+    username: enrollment.username || account.username || '',
+  };
+}
+
+function startAdminAccountMfaEnrollment(admin, accountId, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = adminAccountForMfaManagement(accountId);
+  if (!account) return { error: '后台账号不存在', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  if (['disabled', 'offboarded'].includes(account.status)) {
+    return { error: '禁用或离职停用账号不能绑定 MFA', statusCode: 409, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_NOT_ALLOWED' };
+  }
+  if (account.isEnvAccount && normalizeAdminMfaSecret(ADMIN_MFA_SECRET)) {
+    return { error: '该主账号的 MFA 由服务器环境变量管理；请先移除环境变量 Secret，再改用后台扫码绑定', statusCode: 409, code: 'ADMIN_ACCOUNT_MFA_ENV_MANAGED' };
+  }
+  const reasonResult = adminAccountReason(body.reason, adminAccountMfaEnabled(account) ? '重新绑定后台账号 MFA' : '绑定后台账号 MFA');
+  if (reasonResult.error) return reasonResult;
+  const now = Date.now();
+  const createdAt = new Date(now).toISOString();
+  const expiresAt = new Date(now + ADMIN_MFA_ENROLLMENT_TTL_MS).toISOString();
+  const issuer = 'Lumii';
+  const username = account.username || account.id || 'admin';
+  const label = `${issuer} Admin:${username}`;
+  const mfaSecret = generateAdminMfaSecret();
+  const enrollment = {
+    accountId: account.id,
+    attempts: 0,
+    createdAt,
+    createdBy: admin.username || ADMIN_USERNAME,
+    createdIp: admin.ip || '',
+    expiresAt,
+    id: `admin-mfa-enrollment-${crypto.randomUUID()}`,
+    issuer,
+    mfaSecret,
+    otpauthUri: `otpauth://totp/${encodeURIComponent(label)}?secret=${encodeURIComponent(mfaSecret)}&issuer=${encodeURIComponent(issuer)}`,
+    reason: reasonResult.reason,
+    replacingMfa: adminAccountMfaEnabled(account),
+    username,
+  };
+  ensureAdminMfaEnrollments()[account.id] = enrollment;
+  writeAdminAudit(admin, 'admin.account.mfa_enrollment.start', 'admin_account', account.id, null, {
+    enrollmentId: enrollment.id,
+    expiresAt,
+    replacingMfa: enrollment.replacingMfa,
+    username,
+  }, reasonResult.reason);
+  return adminMfaEnrollmentPublic(enrollment, account);
+}
+
+function cancelAdminAccountMfaEnrollment(admin, accountId, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = adminAccountForMfaManagement(accountId);
+  if (!account) return { error: '后台账号不存在', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  const enrollment = adminMfaEnrollmentForAccount(account.id);
+  if (!enrollment) return { error: 'MFA 绑定任务不存在或已过期', statusCode: 404, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_NOT_FOUND' };
+  if (body.enrollmentId && !safeEqualText(body.enrollmentId, enrollment.id)) {
+    return { error: 'MFA 绑定任务已更新，请刷新后重试', statusCode: 409, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_STALE' };
+  }
+  clearAdminMfaEnrollment(account.id);
+  const reason = String(body.reason || '取消后台账号 MFA 绑定').replace(/\s+/g, ' ').trim().slice(0, 240);
+  writeAdminAudit(admin, 'admin.account.mfa_enrollment.cancel', 'admin_account', account.id, null, {
+    enrollmentId: enrollment.id,
+    username: account.username || '',
+  }, reason);
+  return { account: publicAdminAccount(account), canceled: true, enrollmentId: enrollment.id };
+}
+
+function confirmAdminAccountMfaEnrollment(admin, accountId, body = {}) {
+  const permission = requireAdminAccountManager(admin);
+  if (permission) return permission;
+  const account = adminAccountForMfaManagement(accountId);
+  if (!account) return { error: '后台账号不存在', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  if (['disabled', 'offboarded'].includes(account.status)) {
+    clearAdminMfaEnrollment(account.id);
+    return { error: '禁用或离职停用账号不能绑定 MFA', statusCode: 409, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_NOT_ALLOWED', persistState: true };
+  }
+  const enrollment = adminMfaEnrollmentForAccount(account.id);
+  if (!enrollment) return { error: 'MFA 绑定任务不存在或已过期，请重新发起绑定', statusCode: 410, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_EXPIRED' };
+  if (!body.enrollmentId || !safeEqualText(body.enrollmentId, enrollment.id)) {
+    return { error: 'MFA 绑定任务已更新，请重新扫码', statusCode: 409, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_STALE' };
+  }
+  const code = String(body.mfaCode || body.code || body.otp || body.totp || '').replace(/\s+/g, '');
+  if (!verifyAdminMfaSecret(enrollment.mfaSecret, code)) {
+    enrollment.attempts = Number(enrollment.attempts || 0) + 1;
+    enrollment.lastFailedAt = new Date().toISOString();
+    enrollment.lastFailedBy = admin.username || ADMIN_USERNAME;
+    const attemptsRemaining = Math.max(0, ADMIN_MFA_ENROLLMENT_MAX_ATTEMPTS - enrollment.attempts);
+    writeAdminAudit(admin, 'admin.account.mfa_enrollment.failed', 'admin_account', account.id, null, {
+      attempts: enrollment.attempts,
+      attemptsRemaining,
+      enrollmentId: enrollment.id,
+      username: account.username || '',
+    }, 'MFA 绑定动态验证码校验失败');
+    if (attemptsRemaining <= 0) clearAdminMfaEnrollment(account.id);
+    return {
+      attemptsRemaining,
+      code: attemptsRemaining <= 0 ? 'ADMIN_ACCOUNT_MFA_ENROLLMENT_LOCKED' : 'ADMIN_ACCOUNT_MFA_ENROLLMENT_CODE_INVALID',
+      error: attemptsRemaining <= 0 ? '动态验证码连续错误，绑定任务已失效，请重新发起' : `动态验证码不正确，还可尝试 ${attemptsRemaining} 次`,
+      persistState: true,
+      statusCode: attemptsRemaining <= 0 ? 429 : 400,
+    };
+  }
+  const reasonResult = adminAccountReason(body.reason, enrollment.replacingMfa ? '确认重新绑定后台账号 MFA' : '确认绑定后台账号 MFA');
+  if (reasonResult.error) return reasonResult;
+  const before = publicAdminAccount(account);
+  const now = new Date().toISOString();
+  if (account.isEnvAccount) {
+    Object.assign(ensureAdminEnvMfaProfile(), {
+      mfaEnabled: true,
+      mfaSecret: enrollment.mfaSecret,
+      mfaUpdatedAt: now,
+      mfaUpdatedBy: admin.username || ADMIN_USERNAME,
+      source: 'state_enrollment',
+    });
+  } else {
+    account.mfaSecret = enrollment.mfaSecret;
+    account.mfaEnabled = true;
+    account.mfaUpdatedAt = now;
+    account.mfaUpdatedBy = admin.username || ADMIN_USERNAME;
+    account.updatedAt = now;
+  }
+  clearAdminMfaEnrollment(account.id);
+  const effectiveAccount = account.isEnvAccount ? adminEnvAccount() : account;
+  const after = publicAdminAccount(effectiveAccount);
+  const revokedSessions = revokeAdminLoginSessionsForAccount(account.id, account.username, admin, reasonResult.reason);
+  const reauthRequired = adminLoginSessionMatchesAccount({ accountId: admin.id, username: admin.username }, account.id, account.username);
+  writeAdminAudit(admin, 'admin.account.mfa_enrollment.confirm', 'admin_account', account.id, before, after, reasonResult.reason);
+  if (revokedSessions > 0) {
+    writeAdminAudit(admin, 'admin.session.revoke_all', 'admin_account', account.id, null, { revokedSessions, username: account.username }, reasonResult.reason);
+  }
+  return {
+    account: after,
+    accounts: adminAccountRows(),
+    reauthRequired,
+    revokedSessions,
+    summary: adminAccounts(admin).summary,
+  };
+}
+
 function resetAdminAccountMfa(admin, accountId, body = {}) {
   const permission = requireAdminAccountManager(admin);
   if (permission) return permission;
-  const account = findStoredAdminAccountById(accountId);
-  if (!account) return { error: '后台账号不存在，环境变量账号 MFA 只能通过环境变量修改', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
+  const account = adminAccountForMfaManagement(accountId);
+  if (!account) return { error: '后台账号不存在', statusCode: 404, code: 'ADMIN_ACCOUNT_NOT_FOUND' };
   if (account.status === 'offboarded') return { error: '离职停用账号不能重置 MFA', statusCode: 409, code: 'ADMIN_ACCOUNT_OFFBOARDED' };
+  if (account.isEnvAccount && normalizeAdminMfaSecret(ADMIN_MFA_SECRET)) {
+    return { error: '该主账号的 MFA 由服务器环境变量管理，不能在后台关闭', statusCode: 409, code: 'ADMIN_ACCOUNT_MFA_ENV_MANAGED' };
+  }
   const reasonResult = adminAccountReason(body.reason, '更新后台账号 MFA');
   if (reasonResult.error) return reasonResult;
   const rawSecret = body.mfaSecret ?? body.totpSecret ?? body.secret ?? '';
-  const mfaSecret = normalizeAdminMfaSecret(rawSecret);
-  if (String(rawSecret || '').trim() && !mfaSecret) {
-    return { error: 'MFA Secret 必须是有效的 Base32 TOTP 密钥', statusCode: 400, code: 'ADMIN_ACCOUNT_MFA_SECRET_INVALID' };
+  if (String(rawSecret || '').trim()) {
+    return { error: '不能直接写入未验证的 MFA Secret；请使用扫码绑定并输入动态验证码确认', statusCode: 400, code: 'ADMIN_ACCOUNT_MFA_ENROLLMENT_REQUIRED' };
   }
+  const mfaSecret = '';
   const before = publicAdminAccount(account);
-  account.mfaSecret = mfaSecret;
-  account.mfaEnabled = Boolean(mfaSecret);
-  account.mfaUpdatedAt = new Date().toISOString();
-  account.mfaUpdatedBy = admin?.username || ADMIN_USERNAME;
-  account.updatedAt = account.mfaUpdatedAt;
+  clearAdminMfaEnrollment(account.id);
+  const updatedAt = new Date().toISOString();
+  if (account.isEnvAccount) {
+    Object.assign(ensureAdminEnvMfaProfile(), {
+      mfaEnabled: false,
+      mfaSecret: '',
+      mfaUpdatedAt: updatedAt,
+      mfaUpdatedBy: admin?.username || ADMIN_USERNAME,
+      source: 'state_enrollment',
+    });
+  } else {
+    account.mfaSecret = mfaSecret;
+    account.mfaEnabled = Boolean(mfaSecret);
+    account.mfaUpdatedAt = updatedAt;
+    account.mfaUpdatedBy = admin?.username || ADMIN_USERNAME;
+    account.updatedAt = account.mfaUpdatedAt;
+  }
   const revokedSessions = revokeAdminLoginSessionsForAccount(account.id, account.username, admin, reasonResult.reason);
-  const after = publicAdminAccount(account);
+  const after = publicAdminAccount(account.isEnvAccount ? adminEnvAccount() : account);
   writeAdminAudit(admin, 'admin.account.reset_mfa', 'admin_account', account.id, before, after, reasonResult.reason);
   if (revokedSessions > 0) {
     writeAdminAudit(admin, 'admin.session.revoke_all', 'admin_account', account.id, null, { revokedSessions, username: account.username }, reasonResult.reason);
   }
-  return { account: after, accounts: adminAccountRows(), revokedSessions, summary: adminAccounts(admin).summary };
+  return {
+    account: after,
+    accounts: adminAccountRows(),
+    reauthRequired: adminLoginSessionMatchesAccount({ accountId: admin.id, username: admin.username }, account.id, account.username),
+    revokedSessions,
+    summary: adminAccounts(admin).summary,
+  };
 }
 
 function generateAdminPassword() {
@@ -30008,6 +30247,7 @@ function adminAccounts(admin = {}) {
     adminCheckStatus(usernameFromEnv && passwordFromEnv ? 'ok' : 'warn', 'credential_env', '后台账号环境变量', passwordFromEnv ? '后台密码由环境变量覆盖' : '仍可能使用默认后台密码', 'LUMII_ADMIN_USERNAME / LUMII_ADMIN_PASSWORD'),
     adminCheckStatus('ok', 'login_lockout', '逐账号登录失败锁定', loginSecurity.locked ? `当前 ${loginSecurity.lockedAccountCount} 个账号锁定到 ${loginSecurity.lockedUntil}` : `每个账号连续 ${loginSecurity.maxAttempts} 次失败会独立锁定 ${loginSecurity.lockMinutes} 分钟`, 'LUMII_ADMIN_LOGIN_MAX_ATTEMPTS / LUMII_ADMIN_LOGIN_LOCK_MS'),
     adminCheckStatus(allActiveMfaEnabled ? 'ok' : anyMfaEnabled ? 'warn' : 'warn', 'mfa', 'MFA', allActiveMfaEnabled ? `所有 ${activeAccountRows.length} 个活跃后台账号均已启用 TOTP MFA。` : anyMfaEnabled ? `${activeMfaCount}/${activeAccountRows.length} 个活跃后台账号启用 TOTP MFA，生产期建议全部启用。` : '已接入 TOTP MFA 验证能力，但当前没有活跃后台账号启用。', 'LUMII_ADMIN_MFA_SECRET / state adminAccounts.mfaSecret'),
+    adminCheckStatus('ok', 'mfa_verified_enrollment', 'MFA 验证绑定', `支持生成本地二维码、${Math.round(ADMIN_MFA_ENROLLMENT_TTL_MS / 60_000)} 分钟限时绑定、最多 ${ADMIN_MFA_ENROLLMENT_MAX_ATTEMPTS} 次动态验证码校验；验证成功前不会启用，成功后撤销旧会话。`, 'POST /admin/accounts/{id}/mfa-enrollment/start|confirm|cancel'),
     adminCheckStatus(passwordRotation.configured ? 'ok' : 'warn', 'password_rotation', '密码轮换', passwordRotation.enabled ? passwordRotation.configured ? `所有 ${passwordRotation.activeAccounts} 个活跃后台账号均有 ${passwordRotation.maxAgeDays} 天内的轮换记录。` : `${passwordRotation.overdueAccounts.length}/${passwordRotation.activeAccounts} 个活跃后台账号缺少轮换时间或已超过 ${passwordRotation.maxAgeDays} 天。` : '未启用后台密码轮换检查，生产期建议配置轮换周期。', 'LUMII_ADMIN_PASSWORD_ROTATION_DAYS / LUMII_ADMIN_PASSWORD_ROTATED_AT / state adminAccounts.passwordUpdatedAt'),
     adminCheckStatus(ipAllowlist.configured ? 'ok' : 'warn', 'ip_allowlist', 'IP 白名单', ipAllowlist.configured ? `已启用后端白名单，当前 IP ${ipAllowlist.allowed ? '允许' : '不允许'}` : '当前未强制后台 IP 白名单，生产期应在网关或后端启用。', 'LUMII_ADMIN_IP_ALLOWLIST / LUMII_ADMIN_IP_WHITELIST'),
     adminCheckStatus(storedCount > 0 ? 'ok' : 'warn', 'multi_accounts', '多管理员账号', storedCount > 0 ? `已启用 ${storedCount} 个 state 管理员账号，可新增、禁用、启用和重置密码。` : '当前只有环境变量 admin 账号，可在本页新增 state 管理员账号。', 'JSON state：adminAccounts'),
@@ -30041,8 +30281,11 @@ function adminAccounts(admin = {}) {
       mfa: {
         activeAccounts: activeAccountRows.length,
         configured: allActiveMfaEnabled,
+        enrollmentMaxAttempts: ADMIN_MFA_ENROLLMENT_MAX_ATTEMPTS,
+        enrollmentTtlMs: ADMIN_MFA_ENROLLMENT_TTL_MS,
         enabledAccounts: activeMfaCount,
         partial: anyMfaEnabled && !allActiveMfaEnabled,
+        verifiedEnrollmentSupported: true,
       },
       mfaRequired: allActiveMfaEnabled,
       offboarding: {
@@ -30920,7 +31163,7 @@ function adminReadinessQuestions(context = {}) {
   const questions = [
     ['q-domain', 'P1', '后台正式域名使用 ops.lumiiapp.cn、admin.lumiiapp.cn，还是先沿用 /admin？', '首发确定沿用 https://api.lumiiapp.cn/admin，共用已验证 HTTPS 证书和 Nginx；通过后台强密码、MFA 与 IP 白名单控制访问，后续如拆分运维域名再迁移。', '影响后台入口、证书、CDN/网关和运维 SOP。', 'ready', '已确定'],
     ['q-ip', 'P0', '生产后台是否必须白名单 IP？', ipAllowlistReady ? '已接入后端 IP 白名单：/admin 页面和 /admin/* API 都会拦截非白名单 IP。' : '当前未强制白名单；生产前建议至少网关层限制。', '影响后台暴露面和账号被撞库风险。', ipAllowlistReady ? 'ready' : 'open', ipAllowlistReady ? '已接入' : '待确认'],
-    ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', mfaReady ? '已接入 TOTP MFA，所有活跃后台账号均需二次验证码后才能登录。' : mfaPartial ? '已接入 TOTP MFA，但仍有活跃后台账号未启用，生产前建议补齐。' : '已接入 TOTP MFA 基座，但当前没有活跃后台账号启用；生产前需配置 LUMII_ADMIN_MFA_SECRET 或 state 账号 MFA Secret。', '影响生产后台登录安全。', mfaReady ? 'ready' : mfaPartial ? 'reviewing' : 'open', mfaReady ? '已接入' : mfaPartial ? '部分启用' : '待配置'],
+    ['q-mfa', 'P0', '后台账号是否接企业微信、飞书或邮箱 MFA？', mfaReady ? '已接入 TOTP MFA，所有活跃后台账号均需二次验证码后才能登录。' : mfaPartial ? '已接入带二维码和动态验证码确认的 TOTP MFA，但仍有活跃后台账号未完成扫码绑定，生产前需补齐。' : '已接入 TOTP MFA 正式绑定闭环；请在账号权限页为主账号和真实管理员逐个生成二维码、扫码并输入动态验证码确认。', '影响生产后台登录安全。', mfaReady ? 'ready' : mfaPartial ? 'reviewing' : 'open', mfaReady ? '已接入' : mfaPartial ? '部分启用' : '待扫码确认'],
     ['q-safety-vendor', 'P0', '内容安全供应商选哪家，文本和图片是否同一供应商？', safetyVendorReady ? '已选腾讯云天御：文本和图片机审均通过配置中心开关联动，Biztype 可由环境变量覆盖。' : `腾讯云内容安全基座未完全就绪，仍缺：${contentSafetyReadiness.missing.join('、') || '配置复核'}。`, '影响宠友圈、评论、头像、宠物图、地点点评的真实审核能力。', safetyVendorReady ? 'ready' : 'open', safetyVendorReady ? '已确认' : '待业务确认'],
     ['q-image-policy', 'P0', '图片审核失败时，宠友圈发布是阻断、送审，还是先隐藏等待审核？', imagePolicyReady ? '已实现：Block 拒绝，Review 进入 pending_review；宠友圈、地点内容会阻止发布/提交含待审或驳回图片，审核通过后才可继续。' : '图片机审未完全就绪，当前仍需人工任务池和配置复核兜底。', '影响用户发布体验和违规内容外露风险。', imagePolicyReady ? 'ready' : 'open', imagePolicyReady ? '已确认' : '待业务确认'],
     ['q-message-view', 'P1', '私信是否允许人工查看全文？如果允许，谁审批、保留多久？', '已接入策略：不开放任意全文检索；仅允许在举报/关系排查中查看最近上下文窗口，窗口大小、原因必填和保留标记由 social.messageAccess 配置；单 admin 阶段视为带审计的自审批；隐藏私信会同步影响双方移动端会话。', '影响隐私合规和骚扰治理能力。', 'ready', '已接入'],
@@ -31004,7 +31247,7 @@ function adminReadinessGaps(context) {
       requiredAction: adminSecurityMissing.length
         ? `生产前补齐：${adminSecurityMissing.join('、')}；离职人员使用“离职停用”，返岗时新建账号。`
         : '按季度抽查账号、MFA、密码轮换和离职停用审计。',
-      evidence: '账号权限页 / GET /admin/auth/sessions / POST /admin/auth/sessions/{id}/revoke / POST /admin/accounts/{id}/offboard',
+      evidence: '账号权限页 / POST /admin/accounts/{id}/mfa-enrollment/start|confirm / GET /admin/auth/sessions / POST /admin/auth/sessions/{id}/revoke / POST /admin/accounts/{id}/offboard',
     },
     {
       key: 'api_https',
@@ -37533,6 +37776,27 @@ async function handleAdminRequest(req, res, pathname, url, body) {
       return true;
     }
     saveState();
+    ok(res, result);
+    return true;
+  }
+
+  const adminMfaEnrollmentMatch = pathname.match(/^\/admin\/accounts\/([^/]+)\/mfa-enrollment\/(start|confirm|cancel)$/u);
+  if (req.method === 'POST' && adminMfaEnrollmentMatch) {
+    const accountId = decodeURIComponent(adminMfaEnrollmentMatch[1]);
+    const action = adminMfaEnrollmentMatch[2];
+    const result = action === 'start'
+      ? startAdminAccountMfaEnrollment(admin, accountId, body)
+      : action === 'confirm'
+        ? confirmAdminAccountMfaEnrollment(admin, accountId, body)
+        : cancelAdminAccountMfaEnrollment(admin, accountId, body);
+    if (result.persistState) saveState(`admin_mfa_enrollment_${action}_failed`);
+    if (result.error) {
+      fail(res, result.statusCode || 400, result.error, false, {
+        attemptsRemaining: result.attemptsRemaining,
+      }, result.code || 'ADMIN_ACCOUNT_MFA_ENROLLMENT_INVALID');
+      return true;
+    }
+    saveState(`admin_mfa_enrollment_${action}`);
     ok(res, result);
     return true;
   }

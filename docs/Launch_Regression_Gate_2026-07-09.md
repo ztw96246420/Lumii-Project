@@ -26,7 +26,7 @@ The default gate runs:
 - Legal document update/signoff, public legal text endpoints, launch-readiness compliance linkage, and audit records.
 - Pet calendar, pet profile edit/merge, pet media, places, notifications, notification display/click stats, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
 - Admin accounts, admin login device sessions, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
-- Admin production security package generation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
+- Admin production security package generation, verified QR/TOTP MFA enrollment for state and environment accounts, enrollment expiry/attempt/cancel controls, old-session revocation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
 - SQLite/WAL state migration, optimistic revision conflict protection, JSON mirror rebuild, checksum recovery, and backup restoration.
 - Config center AI ops, approval, content-safety hints, experiments, risk confirmation, scheduled publish, and media CDN probe.
 - Public API HTTPS launch-readiness probing, including source TLS, expiring real external-request evidence, forged forwarding-header rejection, TLS/DNS/health failures, and the corresponding P0 readiness blocker.

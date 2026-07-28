@@ -1620,6 +1620,59 @@ th {
   width: 100%;
 }
 
+.mfa-enrollment-card {
+  border-color: rgba(222, 157, 68, 0.45);
+  box-shadow: 0 16px 40px rgba(117, 78, 25, 0.08);
+}
+
+.mfa-enrollment-grid {
+  align-items: center;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+}
+
+.mfa-qr-shell {
+  align-items: center;
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex;
+  justify-content: center;
+  min-height: 220px;
+  padding: 14px;
+}
+
+.mfa-qr-shell svg {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  width: 100%;
+}
+
+.mfa-enrollment-steps {
+  display: grid;
+  gap: 12px;
+  line-height: 1.55;
+}
+
+.mfa-enrollment-steps label {
+  max-width: 280px;
+}
+
+.mfa-secret {
+  background: rgba(42, 38, 33, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  user-select: all;
+}
+
 .switch-row {
   display: flex;
   justify-content: space-between;
@@ -1725,6 +1778,16 @@ th {
   .analytics-funnel-step,
   .ticket-card {
     grid-template-columns: 1fr;
+  }
+
+  .mfa-enrollment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mfa-qr-shell {
+    justify-self: center;
+    max-width: 300px;
+    width: 100%;
   }
 
   .announcement-grid .wide,

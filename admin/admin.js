@@ -1,5 +1,6 @@
 const state = {
   admin: null,
+  adminMfaEnrollment: null,
   adminSecurityPackage: null,
   aiFeedbackQ: '',
   aiFeedbackReason: 'all',
@@ -469,8 +470,20 @@ async function onContentClick(event) {
       await handleAdminAccountPasswordReset(button);
       return;
     }
-    if (action === 'admin-account-reset-mfa') {
-      await handleAdminAccountMfaReset(button);
+    if (action === 'admin-account-mfa-enroll-start') {
+      await handleAdminAccountMfaEnrollmentStart(button);
+      return;
+    }
+    if (action === 'admin-account-mfa-enroll-confirm') {
+      await handleAdminAccountMfaEnrollmentConfirm();
+      return;
+    }
+    if (action === 'admin-account-mfa-enroll-cancel') {
+      await handleAdminAccountMfaEnrollmentCancel();
+      return;
+    }
+    if (action === 'admin-account-mfa-disable') {
+      await handleAdminAccountMfaDisable(button);
       return;
     }
     if (action === 'admin-session-revoke') {
@@ -3227,18 +3240,25 @@ async function handleAdminSessionRevokeOthers() {
 }
 
 function adminAccountActionCell(row) {
-  if (row.source === 'env') {
-    return '<span class="cell-sub">环境变量账号请在服务器环境变量中维护。</span>';
-  }
   if (row.status === 'offboarded') {
     return '<span class="cell-sub">已离职停用；为保留审计边界，该账号不可恢复，请按需新建账号。</span>';
   }
   const disabled = row.status === 'disabled';
+  const mfaActions = disabled ? '' : `
+    <button class="small-button ghost" data-action="admin-account-mfa-enroll-start" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${row.mfaEnabled ? '重新绑定 MFA' : '绑定 MFA'}</button>
+    ${row.mfaEnabled ? `<button class="small-button danger" data-action="admin-account-mfa-disable" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">关闭 MFA</button>` : ''}
+  `;
+  if (row.source === 'env') {
+    if (row.mfaSource === 'env') {
+      return '<span class="cell-sub">主账号密码和 MFA 均由服务器环境变量维护；移除环境变量 MFA Secret 后才可改用后台扫码绑定。</span>';
+    }
+    return `<div class="actions">${mfaActions}</div><span class="cell-sub">主账号密码仍由服务器环境变量维护；MFA 可在此扫码绑定。</span>`;
+  }
   return `
     <div class="actions">
       <button class="small-button" data-action="${disabled ? 'admin-account-enable' : 'admin-account-disable'}" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${disabled ? '启用' : '禁用'}</button>
       <button class="small-button ghost" data-action="admin-account-reset-password" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">重置密码</button>
-      <button class="small-button ghost" data-action="admin-account-reset-mfa" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">${row.mfaEnabled ? '重置 MFA' : '启用 MFA'}</button>
+      ${mfaActions}
       <button class="small-button danger" data-action="admin-account-offboard" data-id="${escapeHtml(row.id)}" data-username="${escapeHtml(row.username)}">离职停用</button>
     </div>
   `;
@@ -3248,11 +3268,10 @@ async function handleAdminAccountCreate() {
   const username = $('adminAccountUsername').value.trim();
   const displayName = $('adminAccountDisplayName').value.trim();
   const password = $('adminAccountPassword').value;
-  const mfaSecret = $('adminAccountMfaSecret')?.value.trim() || '';
   const roleId = $('adminAccountRole')?.value || 'support';
   const reason = $('adminAccountReason').value.trim() || '新增后台管理员账号';
-  await post('/admin/accounts', { displayName, mfaSecret, password, reason, roleIds: [roleId], username });
-  ['adminAccountUsername', 'adminAccountDisplayName', 'adminAccountPassword', 'adminAccountMfaSecret'].forEach((id) => {
+  await post('/admin/accounts', { displayName, password, reason, roleIds: [roleId], username });
+  ['adminAccountUsername', 'adminAccountDisplayName', 'adminAccountPassword'].forEach((id) => {
     const node = $(id);
     if (node) node.value = '';
   });
@@ -3304,22 +3323,139 @@ async function handleAdminAccountPasswordReset(button) {
   await render(true);
 }
 
-async function handleAdminAccountMfaReset(button) {
+async function handleAdminAccountMfaEnrollmentStart(button) {
   const username = button.dataset.username || '该账号';
-  const mfaSecret = window.prompt(`请输入 ${username} 的 Base32 TOTP Secret。留空将关闭该账号 MFA。`);
-  if (mfaSecret === null) return;
-  const trimmedSecret = mfaSecret.trim();
-  const defaultReason = trimmedSecret ? '启用或重置后台账号 MFA' : '关闭后台账号 MFA';
-  const reason = window.prompt('请输入更新 MFA 原因', defaultReason);
+  const reason = window.prompt(`请输入为 ${username} 发起 MFA 绑定的原因`, '管理员本人扫码绑定 TOTP MFA');
   if (reason === null) return;
-  await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/reset-mfa`, {
-    mfaSecret: trimmedSecret,
-    reason: reason.trim() || defaultReason,
+  state.adminMfaEnrollment = await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/mfa-enrollment/start`, {
+    reason: reason.trim() || '管理员本人扫码绑定 TOTP MFA',
   });
   state.cache.adminAccounts = null;
   state.cache.audit = null;
-  showToast(trimmedSecret ? '账号 MFA 已更新' : '账号 MFA 已关闭');
+  showToast('绑定码已生成，请扫码并输入动态验证码');
   await render(true);
+}
+
+async function handleAdminAccountMfaEnrollmentConfirm() {
+  const enrollment = state.adminMfaEnrollment;
+  if (!enrollment?.accountId || !enrollment?.enrollmentId) throw new Error('MFA 绑定任务不存在，请重新发起');
+  const mfaCode = $('adminMfaEnrollmentCode')?.value.trim() || '';
+  if (!/^\d{6}$/.test(mfaCode)) throw new Error('请输入认证器中显示的 6 位动态验证码');
+  const result = await post(`/admin/accounts/${encodeURIComponent(enrollment.accountId)}/mfa-enrollment/confirm`, {
+    enrollmentId: enrollment.enrollmentId,
+    mfaCode,
+    reason: enrollment.replacingMfa ? '管理员扫码确认重新绑定 TOTP MFA' : '管理员扫码确认绑定 TOTP MFA',
+  });
+  state.adminMfaEnrollment = null;
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  state.cache.launchReadiness = null;
+  if (result.reauthRequired) {
+    await logout(false);
+    $('loginError').textContent = 'MFA 已安全启用，旧后台会话已失效。请使用刚绑定的动态验证码重新登录。';
+    $('mfaInput')?.focus();
+    return;
+  }
+  showToast('账号 MFA 已验证并启用');
+  await render(true);
+}
+
+async function handleAdminAccountMfaEnrollmentCancel() {
+  const enrollment = state.adminMfaEnrollment;
+  if (!enrollment?.accountId || !enrollment?.enrollmentId) {
+    state.adminMfaEnrollment = null;
+    await render(true);
+    return;
+  }
+  await post(`/admin/accounts/${encodeURIComponent(enrollment.accountId)}/mfa-enrollment/cancel`, {
+    enrollmentId: enrollment.enrollmentId,
+    reason: '管理员取消本次 TOTP MFA 绑定',
+  });
+  state.adminMfaEnrollment = null;
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  showToast('本次 MFA 绑定已取消');
+  await render(true);
+}
+
+async function handleAdminAccountMfaDisable(button) {
+  const username = button.dataset.username || '该账号';
+  const reason = window.prompt(`关闭 ${username} 的 MFA 会让其登录不再需要动态验证码。请输入原因`, '设备遗失，关闭 MFA 后立即重新绑定');
+  if (reason === null) return;
+  if (!window.confirm(`确认关闭 ${username} 的 MFA，并让该账号所有后台会话立即失效？`)) return;
+  const result = await post(`/admin/accounts/${encodeURIComponent(button.dataset.id)}/reset-mfa`, {
+    mfaSecret: '',
+    reason: reason.trim() || '关闭后台账号 MFA',
+  });
+  state.adminMfaEnrollment = null;
+  state.cache.adminAccounts = null;
+  state.cache.audit = null;
+  state.cache.launchReadiness = null;
+  if (result.reauthRequired) {
+    await logout(false);
+    $('loginError').textContent = 'MFA 已关闭，旧后台会话已失效，请重新登录。';
+    return;
+  }
+  showToast('账号 MFA 已关闭，旧会话已失效');
+  await render(true);
+}
+
+function renderAdminMfaEnrollmentPanel() {
+  const enrollment = state.adminMfaEnrollment;
+  if (!enrollment) return '';
+  return `
+    <div class="card mfa-enrollment-card">
+      <div class="section-head">
+        <div>
+          <h2>${enrollment.replacingMfa ? '重新绑定' : '绑定'} ${escapeHtml(enrollment.username || '后台账号')} 的 MFA</h2>
+          <div class="section-sub">绑定码 ${formatTime(enrollment.expiresAt)} 失效 · 验证成功前不会启用</div>
+        </div>
+        ${tonePill('等待扫码确认', 'warn')}
+      </div>
+      <div class="mfa-enrollment-grid">
+        <div class="mfa-qr-shell" id="adminMfaQr" aria-label="TOTP MFA 绑定二维码">正在生成二维码…</div>
+        <div class="mfa-enrollment-steps">
+          <div><strong>1.</strong> 用 Microsoft Authenticator、Google Authenticator、1Password 等认证器扫描左侧二维码。</div>
+          <div><strong>2.</strong> 如果无法扫码，可手工输入密钥：</div>
+          <code class="mfa-secret">${escapeHtml(enrollment.manualEntrySecret || '')}</code>
+          <div><strong>3.</strong> 输入认证器当前显示的 6 位验证码，验证成功后才会真正启用。</div>
+          <label>动态验证码<input id="adminMfaEnrollmentCode" autocomplete="one-time-code" inputmode="numeric" maxlength="6" placeholder="000000" /></label>
+          <div class="actions">
+            <button class="primary-button" data-action="admin-account-mfa-enroll-confirm">验证并启用</button>
+            <button class="small-button ghost" data-action="admin-account-mfa-enroll-cancel">取消绑定</button>
+          </div>
+          <div class="notice bad">绑定成功会立即撤销该账号此前的所有后台会话；如果绑定的是当前账号，需要使用新动态验证码重新登录。</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function adminMfaQrSvg(matrix) {
+  const size = Math.sqrt(matrix.length);
+  if (!Number.isInteger(size) || size < 21) throw new Error('二维码矩阵无效');
+  const quiet = 4;
+  const viewSize = size + quiet * 2;
+  let modules = '';
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      if (matrix[y * size + x]) modules += `M${x + quiet} ${y + quiet}h1v1h-1z`;
+    }
+  }
+  return `<svg viewBox="0 0 ${viewSize} ${viewSize}" role="img" aria-label="TOTP MFA 绑定二维码" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${modules}" fill="#17130f"/></svg>`;
+}
+
+async function renderAdminMfaEnrollmentQr() {
+  const node = $('adminMfaQr');
+  const uri = state.adminMfaEnrollment?.otpauthUri || '';
+  if (!node || !uri) return;
+  try {
+    const { toQR } = await import('/admin/vendor/toqr.mjs');
+    node.innerHTML = adminMfaQrSvg(toQR(uri));
+  } catch (error) {
+    node.textContent = `二维码生成失败，请使用右侧密钥手工绑定：${error.message || '未知错误'}`;
+    node.classList.add('notice', 'bad');
+  }
 }
 
 function adminSecurityPackageText(pkg = {}) {
@@ -3415,6 +3551,8 @@ async function renderAdminAccounts(force) {
 
     ${renderAdminSecurityPackagePanel(data)}
 
+    ${renderAdminMfaEnrollmentPanel()}
+
     <div class="grid two">
       <div class="card">
         <div class="section-head">
@@ -3429,7 +3567,6 @@ async function renderAdminAccounts(force) {
           <label>显示名称<input id="adminAccountDisplayName" maxlength="40" placeholder="例如 运营管理员" /></label>
           <label>初始密码<input id="adminAccountPassword" type="password" autocomplete="new-password" placeholder="至少 10 位，含字母和数字" /></label>
           <label>角色<select id="adminAccountRole">${roleOptions}</select></label>
-          <label>MFA Secret<input id="adminAccountMfaSecret" maxlength="120" placeholder="Base32 TOTP 密钥，可留空后续设置" /></label>
           <label>操作原因<input id="adminAccountReason" maxlength="120" value="新增后台管理员账号" /></label>
           <div class="form-actions">
             <button class="primary-button" data-action="admin-account-create">创建账号</button>
@@ -3463,7 +3600,7 @@ async function renderAdminAccounts(force) {
       </div>
       ${tableHtml(data.accounts || [], [
         ['账号', (row) => `<div class="cell-title">${escapeHtml(row.displayName || row.username)}</div><div class="cell-sub">${escapeHtml(row.id)} · ${escapeHtml(row.username)} · ${escapeHtml(row.source || '-')}</div>`],
-        ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ')}</div><div class="cell-sub">${row.mfaEnabled ? 'MFA 已启用' : 'MFA 未启用'}</div>`],
+        ['角色', (row) => `<div>${(row.roleIds || []).map((role) => statusPill(role)).join(' ')}</div><div class="cell-sub">${row.mfaEnrollmentPending ? `MFA 等待验证 · ${formatTime(row.mfaEnrollmentExpiresAt)}` : row.mfaEnabled ? 'MFA 已启用' : 'MFA 未启用'}</div>`],
         ['状态', (row) => `${statusPill(row.status === 'offboarded' ? '离职停用' : row.status)}<div class="cell-sub">${row.offboardedAt ? `离职：${formatTime(row.offboardedAt)}` : row.disabledAt ? `禁用：${formatTime(row.disabledAt)}` : row.lastLoginAt ? `最近登录 ${formatTime(row.lastLoginAt)}` : '暂无登录记录'}</div>`],
         ['最近 IP', (row) => `<div class="cell-sub">${escapeHtml(row.lastLoginIp || 'IP 未记录')}</div>`],
         ['密码', (row) => `<div class="cell-sub">${row.passwordUpdatedAt ? `最近更新 ${formatTime(row.passwordUpdatedAt)}` : row.source === 'env' ? '环境变量维护' : '未记录'}</div>`],
@@ -3599,6 +3736,7 @@ async function renderAdminAccounts(force) {
       </div>
     </div>
   `;
+  await renderAdminMfaEnrollmentQr();
 }
 
 function healthStatusPill(status) {

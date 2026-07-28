@@ -68,20 +68,21 @@ async function waitForBackend() {
   throw lastError || new Error('backend did not become ready');
 }
 
-async function startBackend(port) {
+async function startBackend(port, options = {}) {
   baseUrl = `http://127.0.0.1:${port}`;
   backendProcess = spawn(process.execPath, [backendScript, '--port', String(port)], {
     cwd: rootDir,
     env: {
       ...process.env,
       AMAP_WEB_SERVICE_KEY: '',
-      LUMII_ADMIN_MFA_SECRET: ENV_MFA_SECRET,
+      LUMII_ADMIN_MFA_SECRET: options.mfaSecret ?? ENV_MFA_SECRET,
       LUMII_ADMIN_PASSWORD: 'LumiiAdmin@2026',
       LUMII_ADMIN_PASSWORD_MIN_LENGTH: '10',
       LUMII_ADMIN_PASSWORD_ROTATED_AT: ENV_PASSWORD_ROTATED_AT,
       LUMII_ADMIN_PASSWORD_ROTATION_DAYS: '90',
       LUMII_BACKEND_PORT: String(port),
-      LUMII_BACKEND_STATE_PATH: statePath,
+      LUMII_BACKEND_STATE_PATH: options.statePath || statePath,
+      STATE_BACKUP_DIR: `${options.statePath || statePath}.backups`,
       SMS_COOLDOWN_MS: '0',
       SMS_DAILY_LIMIT: '1000',
       SMS_DEVICE_DAILY_LIMIT: '1000',
@@ -172,6 +173,10 @@ async function main() {
     assert.equal(initial.data.summary.stateAccounts, 0);
     assert.equal(initial.data.security.mfa.configured, true);
     assert.equal(initial.data.security.mfa.enabledAccounts, 1);
+    assert.equal(initial.data.security.mfa.verifiedEnrollmentSupported, true);
+    assert.equal(initial.data.security.mfa.enrollmentMaxAttempts, 5);
+    assert.equal(initial.data.security.mfa.enrollmentTtlMs, 15 * 60 * 1000);
+    assert.equal(initial.data.security.checks.some((item) => item.key === 'mfa_verified_enrollment' && item.status === 'ok'), true);
     assert.equal(initial.data.security.passwordRotation.configured, true);
     assert.equal(initial.data.security.passwordRotation.enabled, true);
     assert.equal(initial.data.security.passwordRotation.maxAgeDays, 90);
@@ -199,10 +204,24 @@ async function main() {
     assert.ok(securityPackage.data.exportCommands.includes('export LUMII_ADMIN_USERNAME='));
     assert.ok(securityPackage.data.restartCommands.includes('systemctl restart lumii-backend'));
 
+    const rejectedDirectMfa = await request('/admin/accounts', {
+      body: {
+        displayName: '不应直接写入 MFA',
+        mfaSecret: SUPPORT_MFA_SECRET,
+        password: 'RejectedAdmin2026',
+        reason: 'smoke rejects unverified MFA secret',
+        roleIds: ['support'],
+        username: 'rejected_mfa_admin',
+      },
+      expectedStatus: 400,
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(rejectedDirectMfa.error.code, 'ADMIN_ACCOUNT_MFA_ENROLLMENT_REQUIRED');
+
     const created = await request('/admin/accounts', {
       body: {
         displayName: '值班管理员',
-        mfaSecret: SUPPORT_MFA_SECRET,
         password: 'OpsAdmin2026',
         reason: 'smoke 创建后台管理员账号',
         roleIds: ['support'],
@@ -216,7 +235,7 @@ async function main() {
     assert.equal(account.username, 'ops_admin_01');
     assert.equal(account.status, 'active');
     assert.equal(account.source, 'state');
-    assert.equal(account.mfaEnabled, true);
+    assert.equal(account.mfaEnabled, false);
     assert.equal(account.mfaSecret, undefined);
     assert.deepEqual(account.roleIds, ['support']);
     assert.equal(account.permissionKeys.includes('support.ticket.process'), true);
@@ -227,8 +246,70 @@ async function main() {
     const stored = rawState.adminAccounts[account.id];
     assert.ok(stored.passwordHash, 'password hash should be persisted');
     assert.notEqual(stored.passwordHash, 'OpsAdmin2026');
-    assert.equal(stored.mfaEnabled, true);
-    assert.equal(stored.mfaSecret, SUPPORT_MFA_SECRET);
+    assert.equal(stored.mfaEnabled, false);
+    assert.equal(stored.mfaSecret, '');
+
+    const exhaustedEnrollment = await request(`/admin/accounts/${encodeURIComponent(account.id)}/mfa-enrollment/start`, {
+      body: { reason: 'smoke starts MFA enrollment that reaches attempt limit' },
+      method: 'POST',
+      token: envToken,
+    });
+    const exhaustedSecret = exhaustedEnrollment.data.manualEntrySecret;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const wrongEnrollmentCode = await request(`/admin/accounts/${encodeURIComponent(account.id)}/mfa-enrollment/confirm`, {
+        body: {
+          enrollmentId: exhaustedEnrollment.data.enrollmentId,
+          mfaCode: wrongMfaCode(exhaustedSecret),
+          reason: 'smoke rejects wrong enrollment code',
+        },
+        expectedStatus: attempt === 5 ? 429 : 400,
+        method: 'POST',
+        token: envToken,
+      });
+      assert.equal(wrongEnrollmentCode.error.code, attempt === 5 ? 'ADMIN_ACCOUNT_MFA_ENROLLMENT_LOCKED' : 'ADMIN_ACCOUNT_MFA_ENROLLMENT_CODE_INVALID');
+      assert.equal(wrongEnrollmentCode.data.attemptsRemaining, 5 - attempt);
+    }
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).adminMfaEnrollments[account.id], undefined);
+    const expiredEnrollment = await request(`/admin/accounts/${encodeURIComponent(account.id)}/mfa-enrollment/confirm`, {
+      body: {
+        enrollmentId: exhaustedEnrollment.data.enrollmentId,
+        mfaCode: totpCodeForSecret(exhaustedSecret),
+        reason: 'smoke cannot confirm exhausted enrollment',
+      },
+      expectedStatus: 410,
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(expiredEnrollment.error.code, 'ADMIN_ACCOUNT_MFA_ENROLLMENT_EXPIRED');
+
+    const enrollment = await request(`/admin/accounts/${encodeURIComponent(account.id)}/mfa-enrollment/start`, {
+      body: { reason: 'smoke starts verified MFA enrollment' },
+      method: 'POST',
+      token: envToken,
+    });
+    const supportMfaSecret = enrollment.data.manualEntrySecret;
+    assert.ok(/^[A-Z2-7]+$/.test(supportMfaSecret), 'enrollment should return a Base32 secret once');
+    assert.equal(enrollment.data.accountId, account.id);
+    assert.equal(enrollment.data.username, account.username);
+    assert.equal(enrollment.data.replacingMfa, false);
+    assert.ok(enrollment.data.otpauthUri.includes(encodeURIComponent(supportMfaSecret)));
+    assert.ok(Date.parse(enrollment.data.expiresAt) > Date.now());
+
+    const confirmedEnrollment = await request(`/admin/accounts/${encodeURIComponent(account.id)}/mfa-enrollment/confirm`, {
+      body: {
+        enrollmentId: enrollment.data.enrollmentId,
+        mfaCode: totpCodeForSecret(supportMfaSecret),
+        reason: 'smoke confirms verified MFA enrollment',
+      },
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(confirmedEnrollment.data.account.mfaEnabled, true);
+    assert.equal(confirmedEnrollment.data.reauthRequired, false);
+    assert.equal(confirmedEnrollment.data.revokedSessions, 0);
+    const enrolledState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(enrolledState.adminAccounts[account.id].mfaSecret, supportMfaSecret);
+    assert.equal(enrolledState.adminMfaEnrollments[account.id], undefined);
 
     const afterCreateAccounts = await request('/admin/accounts', { token: envToken });
     assert.equal(afterCreateAccounts.data.security.mfa.configured, true);
@@ -236,9 +317,9 @@ async function main() {
     assert.equal(afterCreateAccounts.data.security.mfa.partial, false);
     const missingMfa = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 401);
     assert.equal(missingMfa.error.code, 'ADMIN_MFA_REQUIRED');
-    const wrongMfa = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 401, { mfaCode: wrongMfaCode(SUPPORT_MFA_SECRET) });
+    const wrongMfa = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 401, { mfaCode: wrongMfaCode(supportMfaSecret) });
     assert.equal(wrongMfa.error.code, 'ADMIN_MFA_FAILED');
-    const opsToken = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 200, { mfaCode: totpCodeForSecret(SUPPORT_MFA_SECRET) });
+    const opsToken = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 200, { mfaCode: totpCodeForSecret(supportMfaSecret) });
     const me = await request('/admin/me', { token: opsToken });
     assert.equal(me.data.username, 'ops_admin_01');
     assert.deepEqual(me.data.roleIds, ['support']);
@@ -277,7 +358,7 @@ async function main() {
       method: 'POST',
       token: envToken,
     });
-    const enabledToken = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 200, { mfaCode: totpCodeForSecret(SUPPORT_MFA_SECRET) });
+    const enabledToken = await loginAdmin('ops_admin_01', 'OpsAdmin2026', 200, { mfaCode: totpCodeForSecret(supportMfaSecret) });
     const maxAttempts = Number(initial.data.loginSecurity?.maxAttempts || 5);
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       await loginAdmin('ops_admin_01', `WrongPassword${attempt}`, attempt >= maxAttempts ? 429 : 401);
@@ -300,9 +381,16 @@ async function main() {
     assert.ok(passwordReset.data.revokedSessions >= 1, 'password reset should revoke active admin login sessions');
     await request('/admin/me', { expectedStatus: 401, token: enabledToken });
     await loginAdmin('ops_admin_01', 'OpsAdmin2026', 401);
-    const resetToken = await loginAdmin('ops_admin_01', 'OpsAdmin2027', 200, { mfaCode: totpCodeForSecret(SUPPORT_MFA_SECRET) });
+    const resetToken = await loginAdmin('ops_admin_01', 'OpsAdmin2027', 200, { mfaCode: totpCodeForSecret(supportMfaSecret) });
     assert.ok(resetToken, 'new password should login');
     await delay(10);
+    const rejectedMfaReset = await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-mfa`, {
+      body: { mfaSecret: SUPPORT_MFA_SECRET, reason: 'smoke rejects direct unverified MFA reset' },
+      expectedStatus: 400,
+      method: 'POST',
+      token: envToken,
+    });
+    assert.equal(rejectedMfaReset.error.code, 'ADMIN_ACCOUNT_MFA_ENROLLMENT_REQUIRED');
     const mfaReset = await request(`/admin/accounts/${encodeURIComponent(account.id)}/reset-mfa`, {
       body: { mfaSecret: '', reason: 'smoke disable admin account MFA' },
       method: 'POST',
@@ -320,6 +408,9 @@ async function main() {
     assert.equal(actions.includes('admin.account.enable'), true);
     assert.equal(actions.includes('admin.account.reset_password'), true);
     assert.equal(actions.includes('admin.account.reset_mfa'), true);
+    assert.equal(actions.includes('admin.account.mfa_enrollment.start'), true);
+    assert.equal(actions.includes('admin.account.mfa_enrollment.failed'), true);
+    assert.equal(actions.includes('admin.account.mfa_enrollment.confirm'), true);
     const loginAudit = await request('/admin/audit-logs?q=mfa', { token: envToken });
     const loginActions = loginAudit.data.items.map((item) => item.action);
     assert.equal(loginActions.includes('admin.login.mfa_required'), true);
@@ -330,6 +421,9 @@ async function main() {
     const auditText = JSON.stringify(securityEntry);
     assert.equal(auditText.includes(securityPackage.data.password), false, 'generated password must not be written to audit');
     assert.equal(auditText.includes(securityPackage.data.mfaSecret), false, 'generated MFA secret must not be written to audit');
+    const enrollmentAudit = await request('/admin/audit-logs?q=mfa_enrollment', { token: envToken });
+    assert.equal(JSON.stringify(enrollmentAudit.data.items).includes(supportMfaSecret), false, 'enrollment MFA secret must not be written to audit');
+    assert.equal(JSON.stringify(enrollmentAudit.data.items).includes(exhaustedSecret), false, 'exhausted enrollment secret must not be written to audit');
 
     const finalAccounts = await request('/admin/accounts', { token: envToken });
     assert.equal(finalAccounts.data.summary.stateAccounts, 1);
@@ -392,6 +486,73 @@ async function main() {
     assert.equal(afterOffboardAccounts.data.security.mfa.configured, true);
     const offboardAudit = await request('/admin/audit-logs?q=admin.account.offboard', { token: envToken });
     assert.equal(offboardAudit.data.items.some((item) => item.action === 'admin.account.offboard'), true);
+
+    await stopBackend();
+    const envEnrollmentStatePath = path.join(tmpDir, 'env-mfa-enrollment-state.json');
+    await startBackend(await getFreePort(), { mfaSecret: '', statePath: envEnrollmentStatePath });
+    const unprotectedEnvToken = await loginAdmin();
+    const envBeforeEnrollment = await request('/admin/accounts', { token: unprotectedEnvToken });
+    assert.equal(envBeforeEnrollment.data.accounts.find((item) => item.id === 'admin-env')?.mfaEnabled, false);
+
+    const canceledEnvEnrollment = await request('/admin/accounts/admin-env/mfa-enrollment/start', {
+      body: { reason: 'smoke starts cancelable env admin enrollment' },
+      method: 'POST',
+      token: unprotectedEnvToken,
+    });
+    await request('/admin/accounts/admin-env/mfa-enrollment/cancel', {
+      body: {
+        enrollmentId: canceledEnvEnrollment.data.enrollmentId,
+        reason: 'smoke cancels env admin enrollment',
+      },
+      method: 'POST',
+      token: unprotectedEnvToken,
+    });
+    assert.equal(JSON.parse(fs.readFileSync(envEnrollmentStatePath, 'utf8')).adminMfaEnrollments['admin-env'], undefined);
+
+    const envEnrollment = await request('/admin/accounts/admin-env/mfa-enrollment/start', {
+      body: { reason: 'smoke enrolls env admin without systemd secret' },
+      method: 'POST',
+      token: unprotectedEnvToken,
+    });
+    const envEnrolledSecret = envEnrollment.data.manualEntrySecret;
+    const envConfirmed = await request('/admin/accounts/admin-env/mfa-enrollment/confirm', {
+      body: {
+        enrollmentId: envEnrollment.data.enrollmentId,
+        mfaCode: totpCodeForSecret(envEnrolledSecret),
+        reason: 'smoke confirms env admin MFA enrollment',
+      },
+      method: 'POST',
+      token: unprotectedEnvToken,
+    });
+    assert.equal(envConfirmed.data.account.mfaEnabled, true);
+    assert.equal(envConfirmed.data.account.mfaSource, 'state_enrollment');
+    assert.equal(envConfirmed.data.reauthRequired, true);
+    assert.ok(envConfirmed.data.revokedSessions >= 1);
+    await request('/admin/me', { expectedStatus: 401, token: unprotectedEnvToken });
+    const envMissingMfa = await loginAdmin('admin', 'LumiiAdmin@2026', 401);
+    assert.equal(envMissingMfa.error.code, 'ADMIN_MFA_REQUIRED');
+    const envEnrolledToken = await loginAdmin('admin', 'LumiiAdmin@2026', 200, { mfaCode: totpCodeForSecret(envEnrolledSecret) });
+    const envEnrollmentState = JSON.parse(fs.readFileSync(envEnrollmentStatePath, 'utf8'));
+    assert.equal(envEnrollmentState.adminEnvMfaProfile.mfaSecret, envEnrolledSecret);
+    assert.equal(envEnrollmentState.adminMfaEnrollments['admin-env'], undefined);
+    assert.equal(JSON.stringify(envEnrollmentState.adminAuditLogs).includes(envEnrolledSecret), false, 'env enrollment secret must not enter audit logs');
+
+    await stopBackend();
+    await startBackend(await getFreePort(), { mfaSecret: '', statePath: envEnrollmentStatePath });
+    const persistedEnvToken = await loginAdmin('admin', 'LumiiAdmin@2026', 200, { mfaCode: totpCodeForSecret(envEnrolledSecret) });
+    const persistedAccounts = await request('/admin/accounts', { token: persistedEnvToken });
+    assert.equal(persistedAccounts.data.security.mfa.configured, true);
+    assert.equal(persistedAccounts.data.accounts.find((item) => item.id === 'admin-env')?.mfaSource, 'state_enrollment');
+
+    const disabledEnvMfa = await request('/admin/accounts/admin-env/reset-mfa', {
+      body: { mfaSecret: '', reason: 'smoke disables state-enrolled env admin MFA' },
+      method: 'POST',
+      token: persistedEnvToken,
+    });
+    assert.equal(disabledEnvMfa.data.account.mfaEnabled, false);
+    assert.equal(disabledEnvMfa.data.reauthRequired, true);
+    await request('/admin/me', { expectedStatus: 401, token: persistedEnvToken });
+    assert.ok(await loginAdmin(), 'env admin should login without MFA after disabling state enrollment');
   } finally {
     await stopBackend();
     fs.rmSync(tmpDir, { force: true, recursive: true });
