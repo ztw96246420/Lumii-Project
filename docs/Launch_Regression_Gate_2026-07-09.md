@@ -1,6 +1,6 @@
 # Lumii Launch Regression Gate
 
-Last updated: 2026-07-14
+Last updated: 2026-07-29
 
 This is the local pre-release gate for the current mobile + backoffice MVP.
 Run it before APK packaging and before server deployment when the change touches
@@ -24,7 +24,7 @@ The default gate runs:
 - AI avatar generation/animation lifecycle, retry, failure recovery, quota refund, sample review, prompt/provider traces, admin job result apply, and pet chat quality review.
 - Content safety, moderation, reports, appeals, sanctions, social evidence, private-message report context, and social blocking.
 - Legal document update/signoff, JSON/HTML public legal text content negotiation, XSS-safe browser rendering, public-domain TLS/redirect configuration, launch-readiness compliance linkage, and audit records.
-- Pet calendar, pet profile edit/merge, pet media, places, notifications, notification display/click stats, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
+- Pet calendar, pet profile edit/merge, pet media, places, notifications, notification display/click stats, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, privacy-safe structured HTTP access logging, request IDs, and observability.
 - Admin accounts, admin login device sessions, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 - Admin production security package generation, verified QR/TOTP MFA enrollment for state and environment accounts, enrollment expiry/attempt/cancel controls, old-session revocation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
 - SQLite/WAL state migration, optimistic revision conflict protection, JSON mirror rebuild, checksum recovery, and backup restoration.
@@ -32,7 +32,7 @@ The default gate runs:
 - Public API HTTPS launch-readiness probing, including source TLS, expiring real external-request evidence, forged forwarding-header rejection, TLS/DNS/health failures, and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-29: 84/84 default non-visual suites passed in 71.1 seconds.
+Last verified on 2026-07-29: 85/85 default non-visual suites passed in 84.0 seconds.
 
 ## Visual Gate
 
@@ -47,8 +47,8 @@ own/peer pet-circle permissions, same-day archive timestamps, comment create/del
 delete and account-deletion cancellation, calendar shortcuts, reminder/date-picker
 cancel and confirm paths, discover search and own-post navigation, message refresh,
 walk-invite draft restore, and confirmed deletion. Last verified on 2026-07-29:
-94/94 suites passed with visual checks enabled in 407.1 seconds; the mobile Playwright suite took
-311.0 seconds. Use it when page layout, admin UI, or browser-visible interaction
+95/95 suites passed with visual checks enabled in 442.1 seconds; the mobile Playwright suite took
+312.5 seconds. Use it when page layout, admin UI, or browser-visible interaction
 changed.
 
 ## Focused Gate

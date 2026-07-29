@@ -66,6 +66,8 @@ node scripts/smoke-admin-alert-webhook-providers.cjs
 node scripts/smoke-launch-regression.cjs --only=observability,alert-webhook-providers,pending-approval-watch,high-risk-countersign
 ```
 
+后端同时提供生产默认开启的脱敏 JSON 访问日志和 `X-Request-Id` 请求追踪，详见 `docs/Operations_HTTP_Access_Logging_2026-07-29.md`。Webhook 负责主动通知，journald/CLS 负责日志检索和请求关联，两者不能互相替代。
+
 回归脚本会启动本地伪 Webhook，覆盖自动推送、内容聚合、指纹去重、手动测试、HTTP 失败记录和恢复后再次发送。
 
 ## 仍需生产确认
@@ -73,4 +75,4 @@ node scripts/smoke-launch-regression.cjs --only=observability,alert-webhook-prov
 - 实际接收群和责任人。
 - 夜间与节假日值班安排。
 - critical/high 超时升级路径。
-- 外部日志/APM 平台。当前 Webhook 解决的是通知通道，不替代日志检索、链路追踪和基础设施监控。
+- 腾讯云 CLS/APM 采集与告警规则。后端已经输出脱敏 JSON 访问日志和 `X-Request-Id`，但 Webhook 仍只解决通知通道，不替代日志检索、性能追踪和基础设施监控。

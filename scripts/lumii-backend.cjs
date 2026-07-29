@@ -17,6 +17,48 @@ function normalizeHexColor(value, fallback = '#FFFDFC') {
 }
 
 const RUNTIME_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+const HTTP_ACCESS_LOG_ENABLED = process.env.LUMII_HTTP_ACCESS_LOG_ENABLED === 'true'
+  || (RUNTIME_ENV === 'production' && process.env.LUMII_HTTP_ACCESS_LOG_ENABLED !== 'false');
+const HTTP_ACCESS_LOG_INCLUDE_HEALTH = process.env.LUMII_HTTP_ACCESS_LOG_INCLUDE_HEALTH === 'true';
+const HTTP_ACCESS_LOG_SLOW_MS = Math.max(100, Number(process.env.LUMII_HTTP_ACCESS_LOG_SLOW_MS || '2000') || 2000);
+const HTTP_ACCESS_LOG_METHODS = new Set(['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT']);
+const HTTP_ACCESS_LOG_ROUTE_BUCKETS = new Set([
+  'account',
+  'admin',
+  'analytics',
+  'app',
+  'auth',
+  'conversations',
+  'feedback',
+  'greetings',
+  'health',
+  'legal',
+  'media',
+  'me',
+  'notifications',
+  'pet-taxonomy',
+  'pets',
+  'places',
+  'privacy-settings',
+  'push',
+  'social',
+  'storage',
+  'support',
+  'uploads',
+]);
+const httpAccessLogRuntime = {
+  abortedRequests: 0,
+  clientErrors: 0,
+  lastClientErrorAt: '',
+  lastRequestAt: '',
+  lastServerErrorAt: '',
+  loggedRequests: 0,
+  serverErrors: 0,
+  skippedHealthRequests: 0,
+  slowRequests: 0,
+  startedAt: new Date().toISOString(),
+  totalRequests: 0,
+};
 const REQUIRE_LEGAL_CONSENT = process.env.LUMII_REQUIRE_LEGAL_CONSENT === 'true';
 const SMS_PROVIDER = String(process.env.LUMII_SMS_PROVIDER || process.env.SMS_PROVIDER || (RUNTIME_ENV === 'production' ? 'disabled' : 'mock')).trim().toLowerCase();
 const SMS_TEST_CODE = String(process.env.LUMII_SMS_TEST_CODE || '962464').trim();
@@ -7716,6 +7758,85 @@ async function storeBase64ImageToCos(req, user, body, { base64Key, fileNamePrefi
 
 function isLocalImagePlaceholderUrl(value) {
   return /^(file|content|ph|assets-library|data):/i.test(String(value || '').trim());
+}
+
+function httpAccessRouteBucket(rawUrl) {
+  let pathname = '/';
+  try {
+    pathname = new URL(String(rawUrl || '/'), 'http://lumii.internal').pathname || '/';
+  } catch {
+    return '/other';
+  }
+  const segment = pathname.split('/').filter(Boolean)[0] || '';
+  if (!segment) return '/';
+  return HTTP_ACCESS_LOG_ROUTE_BUCKETS.has(segment) ? `/${segment}` : '/other';
+}
+
+function httpAccessLoggingStatus() {
+  return {
+    enabled: HTTP_ACCESS_LOG_ENABLED,
+    includeHealth: HTTP_ACCESS_LOG_INCLUDE_HEALTH,
+    privacyProfile: 'route_bucket_no_identity_v1',
+    slowThresholdMs: HTTP_ACCESS_LOG_SLOW_MS,
+    ...httpAccessLogRuntime,
+  };
+}
+
+function installHttpAccessLogging(req, res) {
+  const requestId = crypto.randomUUID();
+  const startedAt = process.hrtime.bigint();
+  const routeBucket = httpAccessRouteBucket(req.url);
+  const rawMethod = String(req.method || '').toUpperCase();
+  const method = HTTP_ACCESS_LOG_METHODS.has(rawMethod) ? rawMethod : 'OTHER';
+  let finalized = false;
+  req.lumiiRequestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  res.setHeader('Access-Control-Expose-Headers', 'X-Request-Id');
+
+  const finalize = (aborted = false) => {
+    if (finalized) return;
+    finalized = true;
+    const now = new Date().toISOString();
+    const statusCode = aborted ? 0 : Number(res.statusCode || 0);
+    const durationMs = Math.round((Number(process.hrtime.bigint() - startedAt) / 1e6) * 10) / 10;
+    const slow = durationMs >= HTTP_ACCESS_LOG_SLOW_MS;
+    httpAccessLogRuntime.totalRequests += 1;
+    httpAccessLogRuntime.lastRequestAt = now;
+    if (aborted) httpAccessLogRuntime.abortedRequests += 1;
+    if (statusCode >= 400 && statusCode < 500) {
+      httpAccessLogRuntime.clientErrors += 1;
+      httpAccessLogRuntime.lastClientErrorAt = now;
+    }
+    if (statusCode >= 500) {
+      httpAccessLogRuntime.serverErrors += 1;
+      httpAccessLogRuntime.lastServerErrorAt = now;
+    }
+    if (slow) httpAccessLogRuntime.slowRequests += 1;
+
+    const successfulHealthProbe = !aborted && routeBucket === '/health' && statusCode < 400;
+    if (!HTTP_ACCESS_LOG_ENABLED || (!HTTP_ACCESS_LOG_INCLUDE_HEALTH && successfulHealthProbe)) {
+      if (successfulHealthProbe) httpAccessLogRuntime.skippedHealthRequests += 1;
+      return;
+    }
+    httpAccessLogRuntime.loggedRequests += 1;
+    console.log(JSON.stringify({
+      at: now,
+      durationMs,
+      event: 'lumii.http.access',
+      method,
+      outcome: aborted ? 'aborted' : statusCode >= 500 ? 'server_error' : statusCode >= 400 ? 'client_error' : 'success',
+      requestId,
+      routeBucket,
+      schemaVersion: 1,
+      slow,
+      statusCode,
+    }));
+  };
+
+  res.once('finish', () => finalize(false));
+  res.once('close', () => {
+    if (!res.writableFinished) finalize(true);
+  });
 }
 
 function sendJson(res, statusCode, payload) {
@@ -29186,6 +29307,7 @@ async function adminSystemHealth() {
   const stateBackups = adminStateStorageBackupsInfo();
   const auditArchive = adminAuditArchiveStatus();
   const ipAllowlist = adminIpAllowlistStatus('');
+  const httpAccessLogging = httpAccessLoggingStatus();
   const appMediaBase = appMediaPublicBaseUrl();
   const cdnMediaBase = cdnMediaPublicProbeBaseUrl();
   const insecureMediaUrls = insecureLiveMediaUrlSummary();
@@ -29197,6 +29319,17 @@ async function adminSystemHealth() {
   const publicApiExternalProof = publicApiExternalProofStatus(publicApiProbe);
   const mediaCdnProbeStatus = mediaCdnProbe?.status === 'bad' ? 'warn' : mediaCdnProbe?.status;
   const checks = [
+    adminCheckStatus(
+      httpAccessLogging.enabled ? 'ok' : RUNTIME_ENV === 'production' ? 'warn' : 'ok',
+      'http_access_logging',
+      '脱敏结构化访问日志',
+      httpAccessLogging.enabled
+        ? `已启用 JSON 单行访问日志与请求追踪 ID；累计 ${httpAccessLogging.totalRequests} 个请求，4xx ${httpAccessLogging.clientErrors} 个，5xx ${httpAccessLogging.serverErrors} 个，慢请求 ${httpAccessLogging.slowRequests} 个`
+        : RUNTIME_ENV === 'production'
+          ? '生产环境结构化访问日志被显式关闭，外部日志平台无法稳定检索请求链路'
+          : '非生产环境默认不输出访问日志；仍会返回请求追踪 ID 并维护进程内统计',
+      `event=lumii.http.access / X-Request-Id / privacy=${httpAccessLogging.privacyProfile} / slow=${httpAccessLogging.slowThresholdMs}ms`,
+    ),
     adminCheckStatus(
       stateStorage.driver !== 'sqlite' ? 'warn' : stateStorage.healthy && stateStorage.journalMode === 'wal' ? 'ok' : 'bad',
       'state_database',
@@ -29430,7 +29563,7 @@ async function adminSystemHealth() {
       { key: 'supportTickets', label: '工单', rows: countArray(state.supportTickets) },
       { key: 'reports', label: '举报', rows: ensureSocialReports().length },
     ],
-    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'audit_cos_archive', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'pet_medical_review', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
+    dependencies: checks.filter((item) => ['admin_credentials', 'admin_ip_allowlist', 'admin_alert_webhook', 'audit_cos_archive', 'backend_bind_address', 'cos_storage', 'amap', 'place_location_integrity', 'deepseek', 'expo_push', 'http_access_logging', 'pet_medical_review', 'pet_avatar_provider', 'pet_avatar_animation_provider', 'public_api_https', 'public_api_external_https', 'public_media_base', 'media_public_get', 'media_cdn_get', 'sms_provider', 'state_database', 'state_backups'].includes(item.key)),
     generatedAt: new Date(now).toISOString(),
     queues: [
       { detail: `${processingAvatarJobs.length} 处理中 / ${avatarJobs.length} 总任务`, label: 'AI 灵伴生成', status: stuckAvatarJobs.length ? 'warn' : 'ok', value: stuckAvatarJobs.length },
@@ -29469,6 +29602,7 @@ async function adminSystemHealth() {
     },
     alertWebhook,
     auditArchive,
+    httpAccessLogging,
     petMedicalReview,
     pushAcceptance,
     publicApiProbe,
@@ -31296,6 +31430,7 @@ function adminReadinessGaps(context) {
   const healthBad = Number(health?.summary?.bad || 0) > 0;
   const alertWebhookReady = Boolean(health?.alertWebhook?.configured && !health?.alertWebhook?.configError);
   const alertWebhookHealthy = alertWebhookReady && health?.alertWebhook?.lastDelivery?.status !== 'failed';
+  const httpAccessLoggingReady = Boolean(health?.httpAccessLogging?.enabled);
   const auditArchive = health?.auditArchive || adminAuditArchiveStatus();
   const auditArchiveReady = Boolean(auditArchive.operationallyHealthy);
   const publicApiProbe = health?.publicApiProbe || {};
@@ -31543,12 +31678,12 @@ function adminReadinessGaps(context) {
       severity: healthBad ? 'P0' : 'P1',
       status: healthBad ? 'blocked' : 'partial',
       issue: alertWebhookHealthy
-        ? '后台已接内置健康页、运营告警中心和站外 Webhook 推送；仍需生产日志/APM 和正式值班流程。'
-        : '后台已接内置健康页、运营告警中心和站外 Webhook 能力，但通道尚未配置成功；仍不能替代生产日志、APM 与值班。',
+        ? `后台已接内置健康页、运营告警中心、站外 Webhook、${httpAccessLoggingReady ? '脱敏 JSON 访问日志和 X-Request-Id 请求追踪' : '请求追踪能力'}；仍需把服务日志接入外部检索/APM 并确认正式值班流程。`
+        : `后台已接内置健康页、运营告警中心、${httpAccessLoggingReady ? '脱敏 JSON 访问日志和 X-Request-Id 请求追踪' : '请求追踪能力'}，但站外通道尚未配置成功；仍不能替代外部日志检索、APM 与值班。`,
       requiredAction: alertWebhookHealthy
-        ? '继续接入外部日志/APM，并确认告警接收人、分级、静默与值班 SOP。'
-        : '配置并测试 LUMII_ADMIN_ALERT_WEBHOOK_URL，再接外部日志/APM 和值班 SOP。',
-      evidence: '系统健康页 / /admin/dashboard/alerts / LUMII_ADMIN_ALERT_WEBHOOK_URL / adminAlertWebhookDeliveries',
+        ? '将 journald 中 event=lumii.http.access 的单行 JSON 日志采集到腾讯云 CLS/APM，并确认告警接收人、分级、静默与值班 SOP。'
+        : '配置并测试 LUMII_ADMIN_ALERT_WEBHOOK_URL；再把 journald 结构化日志接入腾讯云 CLS/APM，并确认值班 SOP。',
+      evidence: '系统健康 http_access_logging / X-Request-Id / event=lumii.http.access / /admin/dashboard/alerts / LUMII_ADMIN_ALERT_WEBHOOK_URL',
     },
     {
       key: 'exports_governance',
@@ -42761,6 +42896,7 @@ async function handle(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  installHttpAccessLogging(req, res);
   handle(req, res).catch((error) => {
     console.error(error);
     fail(res, 500, '本地服务异常，请稍后重试', true);
