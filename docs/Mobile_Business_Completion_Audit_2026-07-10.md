@@ -319,6 +319,7 @@
 ## 3. 当前验证证据
 
 - 2026-07-29 合规公开入口与裸域收口：现有 `/legal/terms`、`/legal/privacy` 和 `/legal/content-policy` 在保持 App JSON 契约的同时，支持浏览器 `Accept: text/html` 的安全排版页面；草稿明确禁止索引，后台可编辑文本完成 HTML 转义并受严格 CSP/防嵌入策略保护。`lumiiapp.cn` 与 `www.lumiiapp.cn` 的 Nginx 配置改为独立 ACME/HTTPS 跳转 vhost，不再把裸域请求误落到后台。完整非可视门禁 84/84 通过；完整可视门禁 94/94 通过，用时 407.1 秒，其中移动端 Playwright 用时 311.0 秒。
+- 合规入口提交 `1c01abb` 已通过直连 SSH 部署到生产。停服后使用生产 Node 24 对 SQLite 执行 `quick_check=ok` 与 WAL 截断检查点，主库、JSON 回滚镜像和独立审计 journal 备份到 `/home/ubuntu/lumii-data/deploy-backups/20260729-081745-pre-1c01abb7` 并生成 SHA-256 清单。Let's Encrypt 原 `api.lumiiapp.cn` lineage 已扩展 SAN 至 `api.lumiiapp.cn`、`lumiiapp.cn`、`www.lumiiapp.cn`，有效期至 2026-10-26，三域名模拟续期成功；站外裸域根路径跳转到浏览器可读隐私政策，`www` 法律路径保持 URI 跳转，API JSON、公开 HTML、`/health` 和媒体 CDN 哨兵均验证成功。部署后审计 COS 因旧成功证据超时短暂转为 stale，手动归档成功后恢复 `healthy`、累计 20 次；生产台账回到 `blockedGaps=2`、`openP0=5`、`bad=1`，服务和 Nginx 均为 `active`、`NRestarts=0`，部署后 warning/error 日志为 0，用户数保持 0。
 
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 移动端核心 HTTP：`node scripts/smoke-mobile-core-flows.cjs` 通过，覆盖空计划、新增、编辑、开启提醒、完成、恢复、删除及关联数据清理。
