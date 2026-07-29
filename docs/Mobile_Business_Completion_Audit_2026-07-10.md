@@ -264,8 +264,9 @@
 
 ### 2.32 Android Push 原生门禁与登记诊断
 
-- 正式构建新增 Firebase 原生配置硬门禁：必须存在 `mobile/android/app/google-services.json`，且包含 `project_info.project_number`、`mobilesdk_app_id` 和包名 `com.lumii.lingban`；缺失、JSON 非法或包名不匹配时不再产出生产 APK。
+- 正式构建新增 Firebase 原生配置硬门禁：必须存在 `mobile/android/app/google-services.json`，Firebase 项目必须为 `lumii-lingban`，且包含 `project_info.project_number`、Android API key、`mobilesdk_app_id` 和包名 `com.lumii.lingban`；缺失、JSON 非法或身份不匹配时不再产出生产 APK。
 - Android Gradle 接入官方 Google Services 插件；有配置文件时把 Firebase 值编译为资源。`app.json` 同步声明 `googleServicesFile`，EAS 与本地 Gradle 使用同一文件。
+- 本地正式构建新增证书与实包双重门禁：构建前确认正式 keystore 可读取且 SHA-256 指纹未变化，构建后用 Android SDK 复验单一签名者、APK v2 签名、包名、版本号和仅 `arm64-v8a` ABI；未通过的产物不会复制到 `dist`。`cd mobile && npm run validate:android-release` 可只执行前置检查而不打 APK。
 - 移动端推送登记拆成 `permission / native_token / expo_token / backend` 四阶段；设置页新增紧凑的“通知推送状态”，可查看已登记、未授权、登记中、需处理并手动重试。
 - 联网或供应商暂时失败会按 30 秒、2 分钟、10 分钟退避重试；App 回到前台会补登记，FCM token 轮换时会重新换取并上报 Expo Push Token。关闭通知会记录 `disabled`，重新开启会强制重新登记。
 - 后端只接受白名单状态和失败码，不收集原生错误原文；后台通知页会显示尚未取得 token 的安装实例、失败阶段、App 版本和尝试次数。客户端自报只作为观测信号，系统健康显示警告，正式构建门禁与真实 receipt 才是上线证据。

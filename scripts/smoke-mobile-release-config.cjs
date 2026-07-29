@@ -9,6 +9,13 @@ const typescript = require(path.join(__dirname, '..', 'mobile', 'node_modules', 
 const rootDir = path.resolve(__dirname, '..');
 const mobileDir = path.join(rootDir, 'mobile');
 const { validateReleaseConfig } = require(path.join(mobileDir, 'scripts', 'validate-release-config.cjs'));
+const {
+  expectedReleaseCertificateSha256,
+  normalizeFingerprint,
+  parseApkSignerReport,
+  parseJavaProperties,
+  parseKeytoolCertificate,
+} = require(path.join(mobileDir, 'scripts', 'verify-android-release-prerequisites.cjs'));
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-release-config-'));
 const validGoogleServicesPath = path.join(tmpDir, 'google-services.json');
 fs.writeFileSync(validGoogleServicesPath, JSON.stringify({
@@ -17,8 +24,9 @@ fs.writeFileSync(validGoogleServicesPath, JSON.stringify({
       android_client_info: { package_name: 'com.lumii.lingban' },
       mobilesdk_app_id: '1:1234567890:android:release-config-smoke',
     },
+    api_key: [{ current_key: 'release-config-smoke-api-key' }],
   }],
-  project_info: { project_number: '1234567890' },
+  project_info: { project_id: 'lumii-lingban', project_number: '1234567890' },
 }));
 const productionValidationOptions = { forceProduction: true, googleServicesFilePath: validGoogleServicesPath };
 
@@ -134,6 +142,17 @@ const buildScript = fs.readFileSync(path.join(mobileDir, 'scripts', 'build-arm64
 assert.match(buildScript, /https:\/\/api\.lumiiapp\.cn/);
 assert.match(buildScript, /LUMII_ALLOW_INSECURE_TEST_API === '1'/);
 assert.match(buildScript, /insecure-test-/);
+assert.match(buildScript, /verifyAndroidReleasePrerequisites/);
+assert.match(buildScript, /verifyApkArtifact/);
+
+assert.deepEqual(parseJavaProperties('A=one\nB:two=three\n# ignored'), { A: 'one', B: 'two=three' });
+assert.equal(normalizeFingerprint('05:E0:78:54'), '05E07854');
+const parsedKeytoolCertificate = parseKeytoolCertificate(`SHA1: 22:93:C8:19\nSHA256: ${expectedReleaseCertificateSha256.match(/../g).join(':')}\n`);
+assert.equal(parsedKeytoolCertificate.sha1, '2293C819');
+assert.equal(parsedKeytoolCertificate.sha256, expectedReleaseCertificateSha256);
+const parsedApkSigner = parseApkSignerReport(`Verifies\nVerified using v2 scheme (APK Signature Scheme v2): true\nNumber of signers: 1\nV2 Signer: certificate SHA-256 digest: ${expectedReleaseCertificateSha256.toLowerCase()}\nV2 Signer: certificate SHA-1 digest: 2293c819\n`);
+assert.equal(parsedApkSigner.signerCount, 1);
+assert.equal(parsedApkSigner.sha256, expectedReleaseCertificateSha256);
 
 expectInvalid(validProductionEnv, /require google-services\.json/, {
   forceProduction: true,
@@ -141,12 +160,21 @@ expectInvalid(validProductionEnv, /require google-services\.json/, {
 });
 const wrongPackageGoogleServicesPath = path.join(tmpDir, 'wrong-package-google-services.json');
 fs.writeFileSync(wrongPackageGoogleServicesPath, JSON.stringify({
-  client: [{ client_info: { android_client_info: { package_name: 'com.example.wrong' }, mobilesdk_app_id: 'wrong' } }],
-  project_info: { project_number: '1234567890' },
+  client: [{ client_info: { android_client_info: { package_name: 'com.example.wrong' }, mobilesdk_app_id: 'wrong' }, api_key: [{ current_key: 'wrong' }] }],
+  project_info: { project_id: 'lumii-lingban', project_number: '1234567890' },
 }));
 expectInvalid(validProductionEnv, /Android client for com\.lumii\.lingban/, {
   forceProduction: true,
   googleServicesFilePath: wrongPackageGoogleServicesPath,
+});
+const wrongProjectGoogleServicesPath = path.join(tmpDir, 'wrong-project-google-services.json');
+fs.writeFileSync(wrongProjectGoogleServicesPath, JSON.stringify({
+  client: [{ client_info: { android_client_info: { package_name: 'com.lumii.lingban' }, mobilesdk_app_id: 'wrong-project' }, api_key: [{ current_key: 'wrong-project' }] }],
+  project_info: { project_id: 'another-project', project_number: '1234567890' },
+}));
+expectInvalid(validProductionEnv, /project_info\.project_id must be lumii-lingban/, {
+  forceProduction: true,
+  googleServicesFilePath: wrongProjectGoogleServicesPath,
 });
 
 console.log('mobile release configuration smoke passed');

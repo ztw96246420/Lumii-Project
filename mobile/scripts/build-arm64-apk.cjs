@@ -2,7 +2,7 @@ const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { validateReleaseConfig } = require('./validate-release-config.cjs');
+const { verifyAndroidReleasePrerequisites, verifyApkArtifact } = require('./verify-android-release-prerequisites.cjs');
 
 const mobileRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(mobileRoot, '..');
@@ -62,7 +62,10 @@ const buildEnv = {
   LUMII_ALLOW_CLEARTEXT: allowInsecureTestApi ? 'true' : 'false',
   LUMII_PRODUCTION_BUILD: allowInsecureTestApi ? 'false' : 'true',
 };
-if (!allowInsecureTestApi) validateReleaseConfig(buildEnv, { forceProduction: true });
+let releaseMetadata = null;
+if (!allowInsecureTestApi) {
+  releaseMetadata = verifyAndroidReleasePrerequisites(buildEnv);
+}
 
 run(
   process.platform === 'win32' ? 'gradlew.bat' : './gradlew',
@@ -74,6 +77,7 @@ run(
 if (!fs.existsSync(sourceApk)) {
   throw new Error(`APK not found: ${sourceApk}`);
 }
+if (!allowInsecureTestApi) verifyApkArtifact(sourceApk, releaseMetadata, { env: buildEnv });
 
 const buildLabel = allowInsecureTestApi ? 'insecure-test-' : '';
 const destApk = path.join(distDir, `Lumii-Lingban-${buildLabel}v${appVersion}-vc${appVersionCode}-arm64-${timestamp()}.apk`);

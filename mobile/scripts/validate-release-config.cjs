@@ -6,6 +6,8 @@ const path = require('node:path');
 
 const productionProfiles = new Set(['production', 'store']);
 const defaultProductionApiHost = 'api.lumiiapp.cn';
+const productionAndroidPackage = 'com.lumii.lingban';
+const productionFirebaseProjectId = 'lumii-lingban';
 
 function isProductionBuild(env = process.env) {
   return env.LUMII_PRODUCTION_BUILD === 'true' || productionProfiles.has(String(env.EAS_BUILD_PROFILE || '').trim().toLowerCase());
@@ -34,15 +36,20 @@ function validateReleaseConfig(env = process.env, options = {}) {
     try {
       const googleServices = JSON.parse(fs.readFileSync(googleServicesFilePath, 'utf8'));
       const matchingClient = Array.isArray(googleServices.client)
-        ? googleServices.client.find((client) => client?.client_info?.android_client_info?.package_name === 'com.lumii.lingban')
+        ? googleServices.client.find((client) => client?.client_info?.android_client_info?.package_name === productionAndroidPackage)
         : null;
       if (!String(googleServices.project_info?.project_number || '').trim()) {
         errors.push('google-services.json must contain project_info.project_number for FCM.');
       }
+      if (String(googleServices.project_info?.project_id || '').trim() !== productionFirebaseProjectId) {
+        errors.push(`google-services.json project_info.project_id must be ${productionFirebaseProjectId}.`);
+      }
       if (!matchingClient) {
-        errors.push('google-services.json must contain an Android client for com.lumii.lingban.');
+        errors.push(`google-services.json must contain an Android client for ${productionAndroidPackage}.`);
       } else if (!String(matchingClient.client_info?.mobilesdk_app_id || '').trim()) {
         errors.push('google-services.json Android client must contain client_info.mobilesdk_app_id.');
+      } else if (!matchingClient.api_key?.some((entry) => String(entry?.current_key || '').trim())) {
+        errors.push('google-services.json Android client must contain api_key.current_key.');
       }
     } catch {
       errors.push('google-services.json must contain valid JSON.');

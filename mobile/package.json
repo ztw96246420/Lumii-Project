@@ -30,6 +30,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "build:android:apk": "node scripts/build-arm64-apk.cjs",
+    "validate:android-release": "node scripts/verify-android-release-prerequisites.cjs",
     "build:android:preview": "npx eas-cli build -p android --profile preview",
     "eas-build-pre-install": "node scripts/validate-release-config.cjs",
     "eas:whoami": "npx eas-cli whoami",

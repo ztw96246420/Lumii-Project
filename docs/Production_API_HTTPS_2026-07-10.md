@@ -101,12 +101,25 @@ EAS `production` 会在安装依赖前运行 `mobile/scripts/validate-release-co
 - 正式包启用明文流量。
 - 正式包使用 mock API。
 - 未显式开启 `EXPO_PUBLIC_REQUIRE_HTTPS`。
+- `google-services.json` 缺失、JSON 非法，或 Firebase 项目不是 `lumii-lingban`。
+- Firebase Android 客户端缺少 `com.lumii.lingban`、`mobilesdk_app_id`、项目编号或 API key。
+
+本地正式 APK 在构建前还会自动运行 `mobile/scripts/verify-android-release-prerequisites.cjs`，并在构建后复验实包。也可以只运行预检而不打 APK：
+
+```powershell
+cd mobile
+npm run validate:android-release
+```
+
+预检会确认 app.json 与 Gradle 的包名、版本一致，Firebase 文件属于正式项目，本机 keystore 可读取且证书 SHA-256 为既有生产签名。实包复验进一步要求仅一个签名者、APK v2 签名有效、证书不变、包名/版本一致且仅包含 `arm64-v8a`；任一条件不满足都不会复制到 `dist`。签名证书如需依法轮换，必须先按升级迁移方案调整门禁，不得直接替换 keystore。
 
 Expo SDK 56 环境变量必须使用 `process.env.EXPO_PUBLIC_*` 点号静态引用，相关实现已按官方说明修正：
 
 - https://docs.expo.dev/guides/environment-variables/
 - https://docs.expo.dev/build/eas-json/
 - https://docs.expo.dev/build-reference/npm-hooks/
+- https://docs.expo.dev/versions/v56.0.0/config/app/#googleservicesfile-1
+- https://docs.expo.dev/versions/v56.0.0/sdk/notifications/
 
 ## 4. HTTP 应急测试包
 
