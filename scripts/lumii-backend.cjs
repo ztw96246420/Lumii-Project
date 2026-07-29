@@ -7731,6 +7731,96 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function requestWantsHtml(req, url) {
+  const explicitFormat = String(url?.searchParams?.get('format') || '').trim().toLowerCase();
+  if (explicitFormat === 'json') return false;
+  if (explicitFormat === 'html') return true;
+  return /(?:^|,)\s*text\/html(?:\s*;|\s*,|\s*$)/iu.test(String(req.headers.accept || ''));
+}
+
+function publicLegalDocumentHtml(doc) {
+  const title = escapeHtml(doc?.title || '灵伴协议与政策');
+  const statusLabel = doc?.productionReady ? '正式发布' : '未发布草稿';
+  const statusClass = doc?.productionReady ? 'ready' : 'draft';
+  const sections = (Array.isArray(doc?.sections) ? doc.sections : []).map((section) => `
+        <section>
+          <h2>${escapeHtml(section?.title || '正文')}</h2>
+          ${(Array.isArray(section?.body) ? section.body : []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('\n          ')}
+        </section>`).join('');
+  const alternateKey = doc?.key === 'privacy' ? 'terms' : 'privacy';
+  const alternateLabel = alternateKey === 'privacy' ? '隐私政策' : '用户协议';
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="${doc?.productionReady ? 'index,follow' : 'noindex,nofollow'}" />
+    <title>${title}</title>
+    <style>
+      :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      * { box-sizing: border-box; }
+      body { background: #fffaf6; color: #3d332d; line-height: 1.75; margin: 0; }
+      main { background: #fff; border: 1px solid #f0dfd4; border-radius: 18px; box-shadow: 0 12px 40px rgba(92, 65, 49, .08); margin: 32px auto; max-width: 860px; padding: 36px clamp(20px, 5vw, 56px); }
+      header { border-bottom: 1px solid #f0e6df; margin-bottom: 28px; padding-bottom: 22px; }
+      h1 { color: #2f2823; font-size: clamp(28px, 5vw, 40px); line-height: 1.25; margin: 0 0 12px; }
+      h2 { color: #3b312b; font-size: 20px; line-height: 1.45; margin: 34px 0 12px; }
+      p { margin: 10px 0; }
+      .meta { color: #796c64; font-size: 14px; }
+      .notice { background: #fff4ec; border-left: 4px solid #e89763; border-radius: 8px; margin: 22px 0 8px; padding: 13px 16px; }
+      .status { border-radius: 999px; display: inline-block; font-size: 13px; margin-left: 8px; padding: 2px 10px; vertical-align: 3px; }
+      .status.ready { background: #e8f6ef; color: #24714c; }
+      .status.draft { background: #fff0e3; color: #9b5528; }
+      footer { border-top: 1px solid #f0e6df; color: #796c64; font-size: 14px; margin-top: 38px; padding-top: 20px; }
+      a { color: #9a532d; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+      @media (max-width: 640px) { main { border: 0; border-radius: 0; box-shadow: none; margin: 0; min-height: 100vh; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>${title}<span class="status ${statusClass}">${statusLabel}</span></h1>
+        <div class="meta">版本 ${escapeHtml(doc?.version || '-')} · 生效日期 ${escapeHtml(doc?.effectiveDate || '-')}</div>
+        ${doc?.disclaimer ? `<div class="notice">${escapeHtml(doc.disclaimer)}</div>` : ''}
+      </header>${sections}
+      <footer>
+        <a href="/legal/${alternateKey}">查看${alternateLabel}</a>
+        <span aria-hidden="true"> · </span>
+        <a href="/legal/${escapeHtml(doc?.key || '')}?format=json">查看机器可读 JSON</a>
+      </footer>
+    </main>
+  </body>
+</html>`;
+}
+
+function sendPublicLegalDocument(req, res, url, key) {
+  const doc = publicLegalDocument(key);
+  if (!requestWantsHtml(req, url)) {
+    ok(res, doc);
+    return;
+  }
+  const body = publicLegalDocumentHtml(doc);
+  res.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Length': Buffer.byteLength(body),
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    'Content-Type': 'text/html; charset=utf-8',
+    'Referrer-Policy': 'no-referrer',
+    Vary: 'Accept',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+  });
+  res.end(body);
+}
+
 function publicMediaCacheControl() {
   return `public, max-age=${COS_PROXY_BROWSER_CACHE_SECONDS}, s-maxage=${COS_PROXY_CACHE_SECONDS}`;
 }
@@ -40054,17 +40144,17 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && pathname === '/legal/terms') {
-    ok(res, publicLegalDocument('terms'));
+    sendPublicLegalDocument(req, res, url, 'terms');
     return;
   }
 
   if (req.method === 'GET' && pathname === '/legal/privacy') {
-    ok(res, publicLegalDocument('privacy'));
+    sendPublicLegalDocument(req, res, url, 'privacy');
     return;
   }
 
   if (req.method === 'GET' && pathname === '/legal/content-policy') {
-    ok(res, publicLegalDocument('content_policy'));
+    sendPublicLegalDocument(req, res, url, 'content_policy');
     return;
   }
 

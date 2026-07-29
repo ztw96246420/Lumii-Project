@@ -35,6 +35,7 @@ const suites = [
   { key: 'launch-readiness-safety', title: 'Launch readiness content safety', script: 'smoke-launch-readiness-content-safety.cjs', timeoutMs: 180_000 },
   { key: 'launch-readiness-decisions', title: 'Launch readiness decisions', script: 'smoke-launch-readiness-question-update.cjs', timeoutMs: 180_000 },
   { key: 'public-api-https', title: 'Public API HTTPS readiness', script: 'smoke-public-api-https.cjs', timeoutMs: 60_000 },
+  { key: 'public-domain-config', title: 'Public domain TLS and compliance redirects', script: 'smoke-public-domain-config.cjs', timeoutMs: 30_000 },
   { key: 'conversation-message-reports', title: 'Conversation message reports', script: 'smoke-conversation-message-reports.cjs', timeoutMs: 180_000 },
   { key: 'moderation-sanction', title: 'Report sanction linkage', script: 'smoke-report-sanction-linkage.cjs', timeoutMs: 180_000 },
   { key: 'report-appeals', title: 'Report appeals', script: 'smoke-report-appeals.cjs', timeoutMs: 180_000 },

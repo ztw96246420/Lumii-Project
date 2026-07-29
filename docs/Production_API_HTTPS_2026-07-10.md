@@ -1,18 +1,18 @@
 # Lumii 正式 API HTTPS 与 Release 构建门禁
 
-日期：2026-07-12
+日期：2026-07-29
 
 ## 1. 当前域名与服务器状态
 
 - 正式 API 域名：`api.lumiiapp.cn`
 - DNS：`api.lumiiapp.cn -> 193.112.92.111`
 - HTTP：已由 Nginx 返回 `301 https://api.lumiiapp.cn$request_uri`
-- HTTPS 证书：Let's Encrypt，证书路径为 `/etc/letsencrypt/live/api.lumiiapp.cn/`
+- HTTPS 证书：Let's Encrypt，证书路径为 `/etc/letsencrypt/live/api.lumiiapp.cn/`；同一证书 lineage 覆盖 `api.lumiiapp.cn`、`lumiiapp.cn` 和 `www.lumiiapp.cn`
 - 当前证书到期日：2026-10-08
 - 自动续期：`certbot.timer` 已安装，`certbot renew --dry-run` 已成功
 - 服务器本机 HTTPS：`GET /health` 已返回 `state=success`
-- 公网 HTTPS：当前站外连接 TCP 443 成功，但 TLS ClientHello 在到达 Nginx 前被重置，`curl` 返回握手失败且 HTTP code 为 `000`
-- 当前判断：源站 Nginx、证书和本机 SNI 校验正常；腾讯云公网/备案/边缘网络链路仍需恢复，不能把源站成功误报成公网可用
+- 公网 HTTPS：`https://api.lumiiapp.cn/health` 已通过站外证书、SNI 与 HTTP 200 验证；`media.lumiiapp.cn` 由腾讯云境内 CDN 提供独立证书
+- 裸域用途：`lumiiapp.cn` 与 `www.lumiiapp.cn` 不反向代理后台，根路径跳转到浏览器可读的隐私政策，其他路径保持 URI 跳到 `api.lumiiapp.cn`
 
 腾讯云 CVM 绑定安全组必须持续保留以下基线规则：
 
@@ -37,7 +37,7 @@ curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}" http://api.lumiiapp.cn/hea
 - HTTPS 返回 `{"data":...,"state":"success"}`
 - HTTP 返回 `301 https://api.lumiiapp.cn/health`
 
-截至 2026-07-12，第一项仍未满足，因此生产 APK 可以完成安全构建，但不能视为真机联网验收通过。
+公网 API 两项均已满足；Android 真机通知授权、FCM token、Expo ticket/receipt 和通知点击仍按独立 Push 门禁验收。
 
 ## 2. Nginx 配置
 
@@ -53,6 +53,17 @@ curl.exe -sS -o NUL -w "%{http_code} %{redirect_url}" http://api.lumiiapp.cn/hea
 - 200 MB 请求体上限。
 - 15 秒连接超时和 180 秒读写超时，兼容 AI 创建任务与大文件请求。
 - TLS 1.2/1.3 和 HSTS。
+- 裸域/`www` 的独立 HTTP/HTTPS vhost：允许 ACME challenge，但不把未知 Host 代理到后台；浏览器入口统一跳到公开合规文本。
+
+扩展现有证书 lineage 时先部署带裸域 ACME location 的 HTTP 配置，再执行：
+
+```bash
+sudo certbot certonly --webroot -w /var/www/certbot \
+  --cert-name api.lumiiapp.cn --expand \
+  -d api.lumiiapp.cn -d lumiiapp.cn -d www.lumiiapp.cn
+```
+
+签发后必须用 `openssl x509` 确认证书 SAN 同时包含三个名称，再启用正式 HTTPS vhost。不要创建第二套同名证书目录，避免续期时 Nginx 继续引用旧 lineage。
 
 部署配置前必须执行：
 

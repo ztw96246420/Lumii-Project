@@ -318,6 +318,8 @@
 
 ## 3. 当前验证证据
 
+- 2026-07-29 合规公开入口与裸域收口：现有 `/legal/terms`、`/legal/privacy` 和 `/legal/content-policy` 在保持 App JSON 契约的同时，支持浏览器 `Accept: text/html` 的安全排版页面；草稿明确禁止索引，后台可编辑文本完成 HTML 转义并受严格 CSP/防嵌入策略保护。`lumiiapp.cn` 与 `www.lumiiapp.cn` 的 Nginx 配置改为独立 ACME/HTTPS 跳转 vhost，不再把裸域请求误落到后台。完整非可视门禁 84/84 通过；完整可视门禁 94/94 通过，用时 407.1 秒，其中移动端 Playwright 用时 311.0 秒。
+
 - 移动端 TypeScript：`npm run typecheck` 通过。
 - 移动端核心 HTTP：`node scripts/smoke-mobile-core-flows.cjs` 通过，覆盖空计划、新增、编辑、开启提醒、完成、恢复、删除及关联数据清理。
 - 生产短信安全：`node scripts/smoke-sms-production.cjs` 通过，覆盖分层失败锁定、锁定期禁止发码、后台解锁审计和恢复登录。

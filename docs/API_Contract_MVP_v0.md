@@ -2015,6 +2015,14 @@ type RuntimeErrorProperties = {
 
 读取当前后台配置的用户协议文本。不要求登录即可访问。
 
+内容协商：
+
+- App/API 请求使用 `Accept: application/json`，继续返回下述 JSON 契约。
+- 浏览器请求包含 `Accept: text/html` 时返回可直接阅读、可复制和可被上架审核人员访问的中文 HTML 页面。
+- `?format=json` 或 `?format=html` 可显式选择格式；显式参数优先于 `Accept`。
+- HTML 页面与 JSON 使用同一份已发布快照；未签署时明确显示“未发布草稿”并设置 `noindex,nofollow`，不会把草稿伪装成正式文本。
+- HTML 输出对所有后台可编辑内容进行转义，并设置严格 CSP、禁止 iframe 嵌入、`nosniff` 和 `no-referrer`。
+
 Response data:
 
 ```ts
@@ -2032,7 +2040,7 @@ type LegalDocument = {
 ```
 
 说明：
-- 默认内容仍是测试版文本，正式上线前需要在后台“合规文本”页更新并签署。
+- 默认内容是完整生产草稿，正式上线前仍需要在后台“合规文本”页补齐真实运营主体并由授权人签署。
 - 后台签署会写入审计日志，并联动上线台账 `q-compliance-text`。
 
 ### GET `/legal/privacy`
@@ -2046,8 +2054,8 @@ LegalDocument
 ```
 
 说明：
-- 当前内容是测试版隐私政策文本，会覆盖登录、宠物照片、AI 处理、附近发现、推送通知等核心场景。
-- 正式上线前仍需要补个人信息收集清单、第三方 SDK 清单、注销规则、未成年人保护说明和正式隐私政策，并在后台签署。
+- 当前完整草稿覆盖登录、宠物照片、AI 处理、附近发现、推送通知、注销和未成年人保护等核心场景。
+- 正式上线前仍需要把真实运营主体、公开联系方式、ICP备案/App 备案信息和实际第三方 SDK 情况写入后台，并由授权人签署发布。
 
 ### GET `/legal/content-policy`
 

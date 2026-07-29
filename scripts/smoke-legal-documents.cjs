@@ -49,6 +49,15 @@ async function request(pathname, { body, expectedStatus = 200, method = 'GET', t
   return payload;
 }
 
+async function requestRaw(pathname, { accept = 'text/html', expectedStatus = 200 } = {}) {
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    headers: { Accept: accept },
+  });
+  const text = await response.text();
+  assert.equal(response.status, expectedStatus, `GET ${pathname} expected ${expectedStatus}, got ${response.status}: ${text}`);
+  return { headers: response.headers, text };
+}
+
 async function waitForBackend() {
   const deadline = Date.now() + 10_000;
   let lastError = null;
@@ -153,6 +162,17 @@ async function main() {
     assert.equal(initialPrivacy.data.status, 'draft');
     assert.equal(initialPrivacy.data.version, 'draft-2026-07-14');
 
+    const initialPrivacyHtml = await requestRaw('/legal/privacy');
+    assert.match(initialPrivacyHtml.headers.get('content-type') || '', /^text\/html; charset=utf-8$/);
+    assert.match(initialPrivacyHtml.headers.get('content-security-policy') || '', /default-src 'none'/);
+    assert.match(initialPrivacyHtml.text, /<html lang="zh-CN">/);
+    assert.match(initialPrivacyHtml.text, /未发布草稿/);
+    assert.match(initialPrivacyHtml.text, /name="robots" content="noindex,nofollow"/);
+
+    const forcedJson = await requestRaw('/legal/privacy?format=json', { accept: 'text/html' });
+    assert.match(forcedJson.headers.get('content-type') || '', /^application\/json; charset=utf-8$/);
+    assert.equal(JSON.parse(forcedJson.text).data.version, 'draft-2026-07-14');
+
     const blockedPhone = '19900007880';
     const blockedSms = await request('/auth/sms/send', {
       body: { deviceId: 'legal-not-ready-device', phone: blockedPhone },
@@ -188,6 +208,7 @@ async function main() {
       const version = `2026.07.14-${doc.key}`;
       await request(`/admin/legal-documents/${encodeURIComponent(doc.key)}`, {
         body: {
+          ...(doc.key === 'privacy' ? { disclaimer: '隐私说明 <script>alert("legal-xss")</script>' } : {}),
           effectiveDate: '2026-07-09',
           reason: `smoke updates ${doc.key}`,
           version,
@@ -217,6 +238,13 @@ async function main() {
     assert.ok(publicPrivacy.data.revisionId);
     assert.equal(publicPrivacy.data.operatorProfile.operatorName, '灵伴合规回归测试运营主体');
     assert.ok(publicPrivacy.data.sections.some((section) => section.title === '运营者与联系'));
+
+    const publicPrivacyHtml = await requestRaw('/legal/privacy');
+    assert.match(publicPrivacyHtml.text, /name="robots" content="index,follow"/);
+    assert.match(publicPrivacyHtml.text, /灵伴合规回归测试运营主体/);
+    assert.match(publicPrivacyHtml.text, /&lt;script&gt;alert\(&quot;legal-xss&quot;\)&lt;\/script&gt;/);
+    assert.doesNotMatch(publicPrivacyHtml.text, /<script>alert\("legal-xss"\)<\/script>/);
+    assert.match(publicPrivacyHtml.text, /href="\/legal\/terms"/);
 
     const publicContentPolicy = await request('/legal/content-policy');
     assert.equal(publicContentPolicy.data.version, '2026.07.14-content_policy');

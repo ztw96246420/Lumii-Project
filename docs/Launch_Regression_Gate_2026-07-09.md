@@ -23,7 +23,7 @@ The default gate runs:
 - Pet friend circle posting, comments, visibility, location, and calendar sync.
 - AI avatar generation/animation lifecycle, retry, failure recovery, quota refund, sample review, prompt/provider traces, admin job result apply, and pet chat quality review.
 - Content safety, moderation, reports, appeals, sanctions, social evidence, private-message report context, and social blocking.
-- Legal document update/signoff, public legal text endpoints, launch-readiness compliance linkage, and audit records.
+- Legal document update/signoff, JSON/HTML public legal text content negotiation, XSS-safe browser rendering, public-domain TLS/redirect configuration, launch-readiness compliance linkage, and audit records.
 - Pet calendar, pet profile edit/merge, pet media, places, notifications, notification display/click stats, Expo Push simulation, audience packages, campaign stats, analytics, support SLA, and observability.
 - Admin accounts, admin login device sessions, IP allowlist, account deletion, user timeline, high-risk approval countersign/expiry/reject/separation, data clear approval, export approval, signed export links, audit integrity journal, state compaction, and state backup recovery.
 - Admin production security package generation, verified QR/TOTP MFA enrollment for state and environment accounts, enrollment expiry/attempt/cancel controls, old-session revocation, MFA/IP/password-rotation readiness, and non-leaking security audit records.
@@ -32,7 +32,7 @@ The default gate runs:
 - Public API HTTPS launch-readiness probing, including source TLS, expiring real external-request evidence, forged forwarding-header rejection, TLS/DNS/health failures, and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-14: 74/74 default non-visual suites passed as part of the complete visual gate run.
+Last verified on 2026-07-29: 84/84 default non-visual suites passed in 71.1 seconds.
 
 ## Visual Gate
 
@@ -46,9 +46,9 @@ and the mobile frontend smoke. The mobile check covers runtime session expiry,
 own/peer pet-circle permissions, same-day archive timestamps, comment create/delete,
 delete and account-deletion cancellation, calendar shortcuts, reminder/date-picker
 cancel and confirm paths, discover search and own-post navigation, message refresh,
-walk-invite draft restore, and confirmed deletion. Last verified on 2026-07-14:
-84/84 suites passed with visual checks enabled; the mobile Playwright suite took
-310.5 seconds. Use it when page layout, admin UI, or browser-visible interaction
+walk-invite draft restore, and confirmed deletion. Last verified on 2026-07-29:
+94/94 suites passed with visual checks enabled in 407.1 seconds; the mobile Playwright suite took
+311.0 seconds. Use it when page layout, admin UI, or browser-visible interaction
 changed.
 
 ## Focused Gate
