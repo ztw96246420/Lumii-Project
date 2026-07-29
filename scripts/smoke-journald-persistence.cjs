@@ -53,4 +53,3 @@ const backendLogging = parseIni(fs.readFileSync(backendLoggingPath, 'utf8')).Ser
 assert.equal(backendLogging.StandardOutput, 'journal');
 assert.equal(backendLogging.StandardError, 'journal');
 assert.equal(backendLogging['Environment'], '"LUMII_HTTP_ACCESS_LOG_SLOW_MS=2000"');
-
