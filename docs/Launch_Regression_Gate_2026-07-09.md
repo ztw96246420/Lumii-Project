@@ -32,7 +32,7 @@ The default gate runs:
 - Public API HTTPS launch-readiness probing, including source TLS, expiring real external-request evidence, forged forwarding-header rejection, TLS/DNS/health failures, and the corresponding P0 readiness blocker.
 - All standalone non-visual smoke scripts under `scripts/smoke-*.cjs` are included in the default gate; visual/browser checks remain opt-in through `--include-visual`.
 
-Last verified on 2026-07-29: 85/85 default non-visual suites passed in 84.0 seconds.
+Last verified on 2026-07-29: 86/86 default non-visual suites passed in 75.3 seconds.
 
 ## Visual Gate
 
@@ -47,8 +47,8 @@ own/peer pet-circle permissions, same-day archive timestamps, comment create/del
 delete and account-deletion cancellation, calendar shortcuts, reminder/date-picker
 cancel and confirm paths, discover search and own-post navigation, message refresh,
 walk-invite draft restore, and confirmed deletion. Last verified on 2026-07-29:
-95/95 suites passed with visual checks enabled in 442.1 seconds; the mobile Playwright suite took
-312.5 seconds. Use it when page layout, admin UI, or browser-visible interaction
+96/96 suites passed with visual checks enabled in 456.8 seconds; the mobile Playwright suite took
+314.8 seconds. Use it when page layout, admin UI, or browser-visible interaction
 changed.
 
 ## Focused Gate

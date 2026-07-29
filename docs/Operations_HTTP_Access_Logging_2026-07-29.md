@@ -57,6 +57,17 @@ sudo journalctl -u lumii-backend --since today --no-pager -o cat | grep '"event"
 
 拿到 App 或客服反馈的 `X-Request-Id` 后，可在 journald/CLS 中按该 UUID 精确定位单次请求，同时不会用手机号检索日志。
 
+## 本机持久化与容量边界
+
+仓库同时提供 `ops/systemd/journald.conf.d/60-lumii-persistent.conf`，生产服务器固定使用持久化 journal：
+
+- 最长保留 30 天，总占用不超过 1GB。
+- 根分区至少保留 8GB 空闲空间。
+- 单 journal 文件最大 128MB、最长 1 天，启用压缩。
+- 30 秒最多接收 10000 条日志，避免异常请求风暴无限占用磁盘。
+
+本机保留用于 CLS 尚未开通或短时不可用时的排障缓冲，不等同于异地日志归档。CLS 正常采集后仍保留该边界，避免外部平台故障时完全失去请求证据。
+
 ## CLS/APM 接入边界
 
 代码侧已经完成可采集的 JSON 单行日志和请求关联。正式上线前仍需在腾讯云侧完成：
@@ -73,5 +84,6 @@ sudo journalctl -u lumii-backend --since today --no-pager -o cat | grep '"event"
 ```powershell
 node --check scripts/lumii-backend.cjs
 node scripts/smoke-http-access-logging.cjs
-node scripts/smoke-launch-regression.cjs --only=http-access-logging,observability,admin-system-health-page --include-visual
+node scripts/smoke-journald-persistence.cjs
+node scripts/smoke-launch-regression.cjs --only=http-access-logging,journald-persistence,observability,admin-system-health-page --include-visual
 ```

@@ -66,6 +66,7 @@ const suites = [
   { key: 'analytics', title: 'Analytics events', script: 'smoke-analytics-events.cjs', timeoutMs: 180_000 },
   { key: 'mobile-runtime-errors', title: 'Mobile runtime error recovery and telemetry', script: 'smoke-mobile-runtime-errors.cjs', timeoutMs: 180_000 },
   { key: 'http-access-logging', title: 'Privacy-safe HTTP access logging', script: 'smoke-http-access-logging.cjs', timeoutMs: 180_000 },
+  { key: 'journald-persistence', title: 'Persistent journald retention', script: 'smoke-journald-persistence.cjs', timeoutMs: 30_000 },
   { key: 'observability', title: 'Observability alerts', script: 'smoke-observability-alerts.cjs', timeoutMs: 180_000 },
   { key: 'alert-webhook-providers', title: 'Admin alert webhook providers', script: 'smoke-admin-alert-webhook-providers.cjs', timeoutMs: 180_000 },
   { key: 'ticket-sla-roster', title: 'Ticket SLA roster', script: 'smoke-ticket-sla-roster.cjs', timeoutMs: 180_000 },
